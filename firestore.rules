@@ -1,0 +1,20 @@
+rules_version = '2';
+// Todos los usuarios habilitados ven y cargan los mismos datos del negocio.
+// Para habilitar a alguien: en Firestore crear el documento miembros/{su email}
+// con el campo  negocio = "deposito-mendoza"  (ver README).
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function miembro(nid) {
+      return request.auth != null && request.auth.token.email != null
+        && exists(/databases/$(db)/documents/miembros/$(request.auth.token.email))
+        && get(/databases/$(db)/documents/miembros/$(request.auth.token.email)).data.negocio == nid;
+    }
+    match /negocios/{nid}/{doc=**} {
+      allow read, write: if miembro(nid);
+    }
+    match /miembros/{email} {
+      allow read: if request.auth != null && request.auth.token.email == email;
+      allow write: if false;
+    }
+  }
+}

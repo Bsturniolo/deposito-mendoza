@@ -1,0 +1,55 @@
+{
+  "name": "deposito-mendoza",
+  "version": "1.0.0",
+  "description": "Depósito Mendoza: stock por talle, ventas, compras, muestras, calendario y balance",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:cloud": "esbuild src/cloud.js --bundle --minify --format=iife --target=es2020 --outfile=app/cloud.js",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
+  },
+  "author": "Bautista",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^38.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.10",
+    "firebase": "^11.10.0"
+  },
+  "productName": "Deposito Mendoza",
+  "build": {
+    "appId": "ar.deposito.mendoza",
+    "productName": "Deposito Mendoza",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "app/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Depósito Mendoza",
+      "artifactName": "Deposito-Mendoza-Instalador-${version}.exe"
+    }
+  }
+}
