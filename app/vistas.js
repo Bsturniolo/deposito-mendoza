@@ -25,9 +25,11 @@ VISTAS.inicio = () => {
     <button data-act="entradaNueva"><span class="e">📥</span><b>Entró mercadería</b></button>
     <button data-act="muestraNueva"><span class="e">📦</span><b>Dejé una muestra</b></button>
   </div>
+  ${avisosBanner()}
   <div class="grid kpis">
     <div class="card kpi"><div class="lbl">Vendido hoy</div><div class="val">${fmtMoney(vh.reduce((s, v) => s + (+v.total || 0), 0))}</div><div class="hint">${pares(vh.flatMap((v) => v.items))} pares</div></div>
     <div class="card kpi"><div class="lbl">Vendido en ${MESES[+mes.slice(5) - 1].toLowerCase()}</div><div class="val">${fmtMoney(r.vendido)}</div><div class="hint">${r.ventas.length} ventas · ${pares(r.ventas.flatMap((v) => v.items))} pares</div></div>
+    <div class="card kpi"><div class="lbl">Invertido en ${MESES[+mes.slice(5) - 1].toLowerCase()}</div><div class="val c-inv">${fmtMoney(r.inversion)}</div><div class="hint">mercadería que entró y otras compras</div></div>
     <div class="card kpi"><div class="lbl">Ganancia del mes</div><div class="val ${r.neta < 0 ? 'c-out' : 'c-in'}">${fmtMoney(r.neta)}</div><div class="hint">ya descontados los gastos</div></div>
     <div class="card kpi"><div class="lbl">Pares en el depósito</div><div class="val">${fmtNum(totPares)}</div><div class="hint">${sinStock.length ? `<span class="c-out">${sinStock.length} talles sin stock</span>` : 'todos los talles con stock'}</div></div>
   </div>
@@ -35,7 +37,7 @@ VISTAS.inicio = () => {
     <div class="card ${mBuscar.length ? 'alerta' : ''}"><div class="spread"><h3>📦 Muestras para buscar</h3><button class="sm" data-act="goto" data-id="muestras">Ver todas</button></div>
       ${mAf.length ? `<div class="list">${mAf.slice(0, 5).map(({ m, d }) => `<div class="li"><div class="m"><b>${esc(m.cliente || 'Sin nombre')}</b><span>${esc(resumenItems(m.items, 2))}</span></div><div class="s"><span class="pill ${d >= dm * 2 ? 'out' : d >= dm ? 'warn' : ''}">${hace(d)}</span><button class="sm" data-act="muestraVolvio" data-id="${m.id}">La busqué</button></div></div>`).join('')}</div>` : '<div class="empty">No hay muestras afuera.</div>'}
     </div>
-    <div class="card ${evs.some((e) => e.fecha < hoy) ? 'alerta roja' : ''}"><div class="spread"><h3>📅 Próximos días</h3><button class="sm" data-act="eventoNuevo">+ Anotar</button></div>
+    <div class="card ${evs.some((e) => e.fecha < hoy) ? 'alerta roja' : ''}"><div class="spread"><h3>📅 Próximos días y préstamos</h3><button class="sm" data-act="eventoNuevo">+ Anotar</button></div>
       ${evs.length ? `<div class="list">${evs.slice(0, 6).map((e) => evLi(e)).join('')}</div>` : '<div class="empty">Nada anotado para estos días.</div>'}
     </div>
     <div class="card"><div class="spread"><h3>💰 Me deben</h3><span class="b">${fmtMoney(meDeben().reduce((s, v) => s + (+v.total || 0), 0))}</span></div>
@@ -62,18 +64,33 @@ VISTAS.stock = () => {
   const ps = state.productos.filter((p) => !p.archivado && (!q || (p.nombre + ' ' + (p.marca || '') + ' ' + (p.color || '')).toLowerCase().includes(q))).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   const totT = Object.fromEntries(ts.map((t) => [t, ps.reduce((s, p) => s + stockT(p, t), 0)]));
   const tot = ps.reduce((s, p) => s + stockTotal(p), 0);
+  const potencial = state.productos.reduce((s, p) => s + Math.max(0, stockTotal(p)) * ((Number(p.precio) || 0) - (Number(p.costo) || 0)), 0);
+  const sinPrecio = state.productos.filter((p) => !p.archivado && (!p.precio || !p.costo));
   return `<div class="spread"><div><h1>Stock</h1><p class="sub">Pares por modelo y talle. Tocá un modelo para ver el detalle.</p></div>
     <div class="row"><button class="pri" data-act="entradaNueva">📥 Entró</button><button data-act="salidaNueva">📤 Salió</button><button data-act="prodNuevo">+ Modelo</button></div></div>
   <div class="grid kpis"><div class="card kpi"><div class="lbl">Pares en total</div><div class="val">${fmtNum(tot)}</div></div>
     <div class="card kpi"><div class="lbl">Mercadería a costo</div><div class="val">${fmtMoney(valorStock())}</div><div class="hint">lo que pagaste</div></div>
+    <div class="card kpi"><div class="lbl">Ganancia si vendés todo</div><div class="val c-in">${fmtMoney(potencial)}</div><div class="hint">precio − costo de cada par</div></div>
     <div class="card kpi"><div class="lbl">Talles sin stock</div><div class="val ${stockBajo().some((x) => x.n <= 0) ? 'c-out' : ''}">${stockBajo().filter((x) => x.n <= 0).length}</div><div class="hint">${stockBajo().filter((x) => x.n > 0).length} con poco stock</div></div></div>
+  ${sinPrecio.length ? `<div class="card alerta mt"><b>Faltan precios:</b> ${sinPrecio.map((p) => `<button class="sm" data-act="prodEditar" data-id="${p.id}">${esc(p.nombre)}</button>`).join(' ')} <span class="small muted">Poné el costo y el precio de venta de cada modelo para que la app saque la inversión y la ganancia.</span></div>` : ''}
   <div class="row mt" style="margin-bottom:10px"><input id="stockQ" class="search" type="search" placeholder="Buscar modelo…" value="${esc(ui.stockQ)}"><a class="btn wa" href="${waLink('', textoStock())}" target="_blank" rel="noopener">💬 Pasar stock por WhatsApp</a></div>
   ${ps.length ? `<div class="tablewrap"><table class="sg"><thead><tr><th class="mod">Modelo</th>${ts.map((t) => `<th>${t}</th>`).join('')}<th>Total</th></tr></thead><tbody>
-    ${ps.map((p) => `<tr class="click" data-act="prodVer" data-id="${p.id}"><td class="mod"><b>${esc(p.nombre)}</b><div class="small muted">${esc([p.marca, p.color].filter(Boolean).join(' · '))}${p.precio ? ' · ' + fmtMoney(p.precio) : ''}</div></td>${ts.map((t) => { const n = stockT(p, t); return `<td class="t ${n <= 0 ? 't0' : n <= minDe(p) ? 'tb' : ''}">${n}</td>`; }).join('')}<td class="tot">${stockTotal(p)}</td></tr>`).join('')}
+    ${ps.map((p) => `<tr class="click" data-act="prodVer" data-id="${p.id}"><td class="mod"><b>${esc(p.nombre)}</b><div class="small muted">${esc([p.marca, p.color].filter(Boolean).join(' · '))}${p.precio ? ' · ' + fmtMoney(p.precio) : ' · <span class="c-warn">sin precio</span>'}</div></td>${ts.map((t) => { const n = stockT(p, t); return `<td class="t ${n <= 0 ? 't0' : n <= minDe(p) ? 'tb' : ''}">${n}</td>`; }).join('')}<td class="tot">${stockTotal(p)}</td></tr>`).join('')}
     </tbody><tfoot><tr><td class="mod b">Total</td>${ts.map((t) => `<td class="b">${totT[t]}</td>`).join('')}<td class="tot">${tot}</td></tr></tfoot></table></div>
     <p class="small muted"><span class="pill out">rojo</span> sin stock · <span class="pill warn">naranja</span> quedan pocos (menos del mínimo que pusiste en el modelo)</p>`
     : `<div class="empty">${state.productos.length ? 'Ningún modelo coincide con la búsqueda.' : 'Todavía no cargaste modelos. Tocá <b>+ Modelo</b>.'}</div>`}`;
 };
+function numerosModelo(p) {
+  const its = state.ventas.flatMap((v) => v.items).filter((i) => i.productoId === p.id);
+  const vendidos = its.reduce((s, i) => s + i.cant, 0), vendido = its.reduce((s, i) => s + i.cant * i.precio, 0);
+  const ganancia = its.reduce((s, i) => s + i.cant * (i.precio - (i.costo || 0)), 0);
+  const comp = state.compras.flatMap((c) => c.items).filter((i) => i.productoId === p.id);
+  const ent = state.stockMovs.filter((m) => m.productoId === p.id && m.cant > 0 && /^(Llegó mercadería|Entrada por mensaje|Stock inicial)/.test(m.motivo));
+  const entraron = comp.reduce((s, i) => s + i.cant, 0) + ent.reduce((s, m) => s + m.cant, 0);
+  const invertido = comp.reduce((s, i) => s + i.cant * (i.costo || 0), 0) + ent.reduce((s, m) => s + m.cant, 0) * (Number(p.costo) || 0);
+  const potencial = Math.max(0, stockTotal(p)) * ((Number(p.precio) || 0) - (Number(p.costo) || 0));
+  return { vendidos, vendido, ganancia, entraron, invertido, potencial };
+}
 function textoStock() {
   const lines = state.productos.filter((p) => !p.archivado && stockTotal(p) > 0).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map((p) => `*${p.nombre}*: ` + talles().filter((t) => stockT(p, t) > 0).map((t) => `${t}(${stockT(p, t)})`).join(' '));
   return `Stock Depósito Mendoza al ${fmtDate(todayStr())}\n` + (lines.join('\n') || 'Sin stock cargado');
@@ -81,7 +98,15 @@ function textoStock() {
 function prodVer(id) {
   const p = prod(id); if (!p) return;
   const movs = state.stockMovs.filter((m) => m.productoId === id).slice(-15).reverse();
-  modal(`<h3>${esc(p.nombre)}</h3><p class="sub">${esc([p.marca, p.color, p.tipo].filter(Boolean).join(' · '))}<br>Precio ${fmtMoney(p.precio)} · costo ${fmtMoney(p.costo)}${p.precio && p.costo ? ` · ganás ${fmtMoney(p.precio - p.costo)} por par` : ''}</p>
+  const n = numerosModelo(p);
+  modal(`<h3>${esc(p.nombre)}</h3><p class="sub">${esc([p.marca, p.color, p.tipo].filter(Boolean).join(' · '))}</p>
+    <div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:12px">
+      <div class="card kpi"><div class="lbl">Costo por par</div><div class="val" style="font-size:19px">${p.costo ? fmtMoney(p.costo) : '<span class="c-warn">Falta</span>'}</div></div>
+      <div class="card kpi"><div class="lbl">Precio de venta</div><div class="val" style="font-size:19px">${p.precio ? fmtMoney(p.precio) : '<span class="c-warn">Falta</span>'}</div><div class="hint">${p.precio && p.costo ? `ganás ${fmtMoney(p.precio - p.costo)} por par (${Math.round((p.precio - p.costo) / p.precio * 100)}%)` : ''}</div></div>
+      <div class="card kpi"><div class="lbl">Invertido</div><div class="val c-inv" style="font-size:19px">${fmtMoney(n.invertido)}</div><div class="hint">${n.entraron} pares que entraron</div></div>
+      <div class="card kpi"><div class="lbl">Ganancia de ventas</div><div class="val c-in" style="font-size:19px">${fmtMoney(n.ganancia)}</div><div class="hint">${n.vendidos} pares vendidos · ${fmtMoney(n.vendido)}</div></div>
+      <div class="card kpi"><div class="lbl">Si vendés lo que hay</div><div class="val" style="font-size:19px">${fmtMoney(n.potencial)}</div><div class="hint">de ganancia (${stockTotal(p)} pares)</div></div>
+    </div>
     <div class="curva">${talles().map((t) => { const n = stockT(p, t); return `<label>${t}<input readonly value="${n}" class="${n > 0 ? 'has' : ''}" style="${n <= 0 ? 'color:var(--out)' : ''}"></label>`; }).join('')}</div>
     <p class="b mt">Total: ${stockTotal(p)} pares</p>
     <div class="row"><button class="pri" id="pvIn">📥 Entró</button><button id="pvOut">📤 Salió</button><button id="pvCont">🔢 Contar stock</button><button id="pvEd">✏️ Editar modelo</button></div>
@@ -104,7 +129,7 @@ function prodForm(id, pre, onSaved) {
     <label class="f">Precio de venta por par<input name="precio" inputmode="decimal" value="${p.precio || ''}" placeholder="$"></label>
     <label class="f">Avisarme cuando queden (por talle)<input name="stockMin" inputmode="numeric" value="${p.stockMin ?? ''}"></label>
     <label class="f">Otros nombres para el chat<input name="alias" value="${esc(p.alias)}" placeholder="Ej: bolt, botin marron"></label>
-    ${isNew ? `<div class="full"><label class="f">Stock que hay hoy (pares por talle, opcional)</label><div class="curva" id="pfCur">${talles().map((t) => `<label>${t}<input data-t="${t}" inputmode="numeric"></label>`).join('')}</div></div>` : ''}
+    ${isNew ? `<div class="full"><label class="f">Stock que hay hoy (pares por talle, opcional)</label><div class="curva" id="pfCur">${talles().map((t) => `<label>${t}<input data-t="${t}" inputmode="numeric"></label>`).join('')}</div><label class="chk mt"><input type="checkbox" id="pfInv"> Contar este stock como inversión de hoy</label></div>` : ''}
     <p class="err full" id="pfErr"></p></div>
     <div class="modal-actions">${isNew ? '' : '<button class="danger izq" id="pfDel">Borrar modelo</button>'}<button data-act="close">Cancelar</button><button class="pri" id="pfOk">Guardar</button></div>`, (box) => {
     $('#pfOk', box).onclick = () => {
@@ -115,7 +140,7 @@ function prodForm(id, pre, onSaved) {
       if (isNew) {
         rec = Object.assign({ id: uid(), talles: {}, creado: todayStr(), tipo: p.tipo }, data); state.productos.push(rec);
         const items = $$('#pfCur input', box).map((i) => ({ productoId: rec.id, talle: i.dataset.t, cant: Math.round(numIn(i.value)) })).filter((i) => i.cant > 0);
-        if (items.length) moverStock(items, 1, 'Stock inicial');
+        if (items.length) { moverStock(items, 1, 'Stock inicial'); if ($('#pfInv', box) && $('#pfInv', box).checked) inversionEntrada(items, todayStr(), rec.id, 'Stock inicial de ' + rec.nombre); }
       } else { rec = Object.assign(p, data); }
       closeModal(); commit(); toast(isNew ? 'Modelo guardado' : 'Cambios guardados'); if (onSaved) onSaved(rec);
     };
@@ -145,6 +170,7 @@ function movStockForm(tipo, pre = {}, onSaved) {
     <label class="f">Motivo<select name="motivo">${MOTIVOS[tipo].map((m) => `<option ${m === pre.motivo ? 'selected' : ''}>${m}</option>`).join('')}</select></label></div>
     <div class="lineas mt" id="msL"></div><button type="button" class="sm mt" id="msAdd">+ Otro modelo</button>
     <label class="f mt">Nota<input name="nota" value="${esc(pre.nota)}"></label>
+    ${ent ? '<label class="chk mt"><input type="checkbox" name="inv" checked> Contarlo como inversión (pares × costo del modelo)</label>' : ''}
     <p class="err" id="msErr"></p>
     <div class="modal-actions">${ent ? '<button class="izq" id="msFac">🧾 Es con factura</button>' : ''}<button data-act="close">Cancelar</button><button class="pri" id="msOk">Guardar</button></div>`, (box) => {
     const ed = lineasEditor($('#msL', box), lines, { verStock: !ent });
@@ -153,7 +179,8 @@ function movStockForm(tipo, pre = {}, onSaved) {
     $('#msOk', box).onclick = () => {
       const items = linesToItems(lines); if (!items.length) return ($('#msErr', box).textContent = 'Elegí el modelo y poné cuántos pares de cada talle.');
       const motivo = $('[name=motivo]', box).value, nota = $('[name=nota]', box).value.trim(), fecha = $('[name=fecha]', box).value || todayStr();
-      moverStock(items, ent ? 1 : -1, motivo + (nota ? ' — ' + nota : ''), rec.foto ? 'foto' : '', fecha);
+      moverStock(items, ent ? 1 : -1, motivo + (nota ? ' — ' + nota : ''), '', fecha);
+      if (ent && $('[name=inv]', box).checked) inversionEntrada(items, fecha);
       closeModal(); commit(); toast(`${ent ? 'Entraron' : 'Salieron'} ${pares(items)} pares`); if (onSaved) onSaved({ items });
     };
   });
@@ -231,63 +258,87 @@ function anularVenta(id) {
 VISTAS.compras = () => {
   let cs = state.compras.slice();
   if (ui.comprasTab === 'debo') cs = debo();
+  if (ui.comprasTab === 'pagadas') cs = cs.filter((c) => c.pagada);
   cs.sort((a, b) => b.fecha.localeCompare(a.fecha));
   const tot = debo().reduce((s, c) => s + (+c.total || 0), 0);
-  return `<div class="spread"><div><h1>Compras y facturas</h1><p class="sub">Cada factura suma los pares al stock y queda anotado si la pagaste.</p></div>
-    <button class="pri" data-act="compraNueva">🧾 Cargar factura</button></div>
-  <div class="tabs"><button class="${ui.comprasTab === 'todas' ? 'on' : ''}" data-act="comprasTab" data-id="todas">Todas</button><button class="${ui.comprasTab === 'debo' ? 'on' : ''}" data-act="comprasTab" data-id="debo">A pagar (${debo().length} · ${fmtMoney(tot)})</button></div>
-  ${cs.length ? `<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Factura</th><th class="n">Pares</th><th>Estado</th><th class="n">Total</th></tr></thead><tbody>
-    ${cs.map((c) => `<tr class="click" data-act="compraVer" data-id="${c.id}"><td>${fmtDateC(c.fecha)}</td><td>${esc(c.proveedor || '—')}</td><td>${esc(c.nro || '')}</td><td class="n">${pares(c.items)}</td><td><span class="pill ${c.pagada ? 'in' : c.vence && c.vence < todayStr() ? 'out' : 'warn'}">${c.pagada ? 'Pagada' : c.vence ? 'Vence ' + fmtDateC(c.vence) : 'A pagar'}</span></td><td class="n b">${fmtMoney(c.total)}</td></tr>`).join('')}
-    </tbody></table></div>` : '<div class="empty">Todavía no cargaste facturas de compra.</div>'}`;
+  const deQue = (c) => pares(c.items) ? pares(c.items) + ' pares' : (c.detalle || (c.clase === 'gasto' ? 'Gasto' : 'Compra'));
+  return `<div class="spread"><div><h1>Compras y facturas</h1><p class="sub">Guardá acá cada factura con su foto o PDF: queda anotado si la pagaste y no se pierde. Si es de mercadería, además suma los pares al stock.</p></div>
+    <div class="row"><button data-act="facturaArchivo">📎 Guardar foto o PDF de una factura</button><button class="pri" data-act="compraNueva">🧾 Cargar factura</button></div></div>
+  <div class="tabs"><button class="${ui.comprasTab === 'todas' ? 'on' : ''}" data-act="comprasTab" data-id="todas">Todas (${state.compras.length})</button><button class="${ui.comprasTab === 'debo' ? 'on' : ''}" data-act="comprasTab" data-id="debo">A pagar (${debo().length} · ${fmtMoney(tot)})</button><button class="${ui.comprasTab === 'pagadas' ? 'on' : ''}" data-act="comprasTab" data-id="pagadas">Pagadas</button></div>
+  ${cs.length ? `<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>De qué</th><th>Estado</th><th class="n">Total</th><th>Archivo</th></tr></thead><tbody>
+    ${cs.map((c) => `<tr class="click" data-act="compraVer" data-id="${c.id}"><td>${fmtDateC(c.fecha)}</td><td>${esc(c.proveedor || '—')}</td><td>${esc(c.nro || '')}</td><td>${esc(deQue(c))}</td><td><span class="pill ${c.pagada ? 'in' : c.vence && c.vence < todayStr() ? 'out' : 'warn'}">${c.pagada ? '✓ Pagada' : c.vence ? (c.vence < todayStr() ? 'Vencida ' : 'A pagar · vence ') + fmtDateC(c.vence) : 'A pagar'}</span></td><td class="n b">${fmtMoney(c.total)}</td><td>${c.archivoId ? '📎' : '<span class="small muted">sin archivo</span>'}</td></tr>`).join('')}
+    </tbody></table></div>` : `<div class="empty">${ui.comprasTab === 'debo' ? 'No debés ninguna factura 👌' : 'Todavía no hay facturas guardadas.'}</div>`}`;
 };
+function pagarCompra(c, fecha) { c.pagada = true; c.fechaPago = fecha || todayStr(); state.eventos.filter((e) => e.ref === c.id).forEach((e) => { e.hecho = true; }); }
 function compraForm(id, pre = {}, onSaved) {
   const precioDe = (p) => p.costo || '';
   const lines = itemsToLines(pre.items, precioDe);
-  const rec = { foto: pre.foto || '' };
+  const rec = { archivo: pre.archivo || null };
   let totalManual = pre.total ? Number(pre.total) : null;
+  const clase0 = pre.clase || 'mercaderia';
   const provs = [...new Set(state.compras.map((c) => c.proveedor).filter(Boolean))];
   if (!provs.includes('Ringo Work')) provs.push('Ringo Work');
-  modal(`<h3>🧾 Cargar factura de compra</h3>
-    <div class="form"><label class="f">Proveedor<input name="prov" list="cfProv" value="${esc(pre.proveedor || (state.compras.length ? '' : 'Ringo Work'))}"><datalist id="cfProv">${provs.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>
+  modal(`<h3>🧾 Guardar factura</h3>
+    <div class="form"><label class="f full">¿De qué es la factura?<select name="clase"><option value="mercaderia" ${clase0 === 'mercaderia' ? 'selected' : ''}>Botines / mercadería (suma al stock)</option><option value="gasto" ${clase0 === 'gasto' ? 'selected' : ''}>Un gasto (luz, alquiler, flete, impuestos…)</option><option value="otra" ${clase0 === 'otra' ? 'selected' : ''}>Otra compra (no suma al stock)</option></select></label>
+    <label class="f">Proveedor<input name="prov" list="cfProv" value="${esc(pre.proveedor || (state.compras.length || clase0 !== 'mercaderia' ? '' : 'Ringo Work'))}"><datalist id="cfProv">${provs.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>
     <label class="f">N° de factura<input name="nro" value="${esc(pre.nro)}" placeholder="Ej: A-0003-00012345"></label>
+    <label class="f full nomerc">Detalle<input name="detalle" value="${esc(pre.detalle)}" placeholder="Ej: Luz de noviembre"></label>
     <label class="f">Fecha<input type="date" name="fecha" value="${pre.fecha || todayStr()}"></label>
     <label class="f">¿La pagaste?<select name="pagada"><option value="1" ${pre.pagada !== false ? 'selected' : ''}>Sí, ya está pagada</option><option value="0" ${pre.pagada === false ? 'selected' : ''}>No, la pago más adelante</option></select></label>
     <label class="f vence">Vence el<input type="date" name="vence" value="${pre.vence || addDays(todayStr(), 30)}"></label>
-    <label class="chk full"><input type="checkbox" name="actCosto" checked> Actualizar el costo de los modelos con el de esta factura</label></div>
-    <div class="lineas mt" id="cfL"></div><div class="row mt"><button type="button" class="sm" id="cfAdd">+ Otro modelo</button><button type="button" class="sm" id="cfNuevo">+ Modelo nuevo que no está en la lista</button></div>
-    
+    ${campoArchivoHTML('Foto o PDF de la factura (para que no se pierda)')}
+    <label class="chk full merc"><input type="checkbox" name="actCosto" checked> Actualizar el costo de los modelos con el de esta factura</label></div>
+    <div class="merc"><div class="lineas mt" id="cfL"></div><div class="row mt"><button type="button" class="sm" id="cfAdd">+ Otro modelo</button><button type="button" class="sm" id="cfNuevo">+ Modelo nuevo que no está en la lista</button></div></div>
     <div class="totbar mt"><span class="small muted" id="cfPares"></span><label class="f" style="flex-direction:row;align-items:center;gap:8px">Total factura<input name="total" inputmode="decimal" style="width:160px;font-weight:800;font-size:18px"></label></div>
     <p class="err" id="cfErr"></p>
     <div class="modal-actions"><button data-act="close">Cancelar</button><button class="pri" id="cfOk">Guardar factura</button></div>`, (box) => {
-    const tot = $('[name=total]', box);
-    const calc = () => { const items = linesToItems(lines); const auto = items.reduce((s, i) => s + i.cant * i.precio, 0); $('#cfPares', box).textContent = `${pares(items)} pares`; if (totalManual == null) tot.value = auto ? fmtNum(auto) : ''; };
+    const tot = $('[name=total]', box), claseSel = $('[name=clase]', box);
+    const esMerc = () => claseSel.value === 'mercaderia';
+    const calc = () => { const items = esMerc() ? linesToItems(lines) : []; const auto = items.reduce((s, i) => s + i.cant * i.precio, 0); $('#cfPares', box).textContent = esMerc() ? `${pares(items)} pares` : ''; if (totalManual == null) tot.value = auto ? fmtNum(auto) : ''; };
     tot.oninput = () => { totalManual = tot.value.trim() ? numIn(tot.value) : null; };
     if (totalManual != null) tot.value = fmtNum(totalManual);
     const ed = lineasEditor($('#cfL', box), lines, { precio: 'Costo por par', precioDe }, calc);
-    const pag = $('[name=pagada]', box), ven = $('.vence', box); const upd = () => ven.classList.toggle('hidden', pag.value === '1'); pag.onchange = upd; upd();
+    const pag = $('[name=pagada]', box), ven = $('.vence', box);
+    const upd = () => { ven.classList.toggle('hidden', pag.value === '1'); $$('.merc', box).forEach((el) => el.classList.toggle('hidden', !esMerc())); $$('.nomerc', box).forEach((el) => el.classList.toggle('hidden', esMerc())); calc(); };
+    pag.onchange = upd; claseSel.onchange = upd;
+    campoArchivo(box, rec);
     $('#cfAdd', box).onclick = ed.add;
-    $('#cfNuevo', box).onclick = () => { const snap = { proveedor: $('[name=prov]', box).value, nro: $('[name=nro]', box).value, fecha: $('[name=fecha]', box).value, items: linesToItems(lines), foto: rec.foto, total: totalManual }; prodForm(null, null, (p) => { snap.items.push({ productoId: p.id, talle: '', cant: 0 }); compraForm(null, snap, onSaved); }); };
+    $('#cfNuevo', box).onclick = () => { const snap = { proveedor: $('[name=prov]', box).value, nro: $('[name=nro]', box).value, fecha: $('[name=fecha]', box).value, items: linesToItems(lines), archivo: rec.archivo, total: totalManual, pagada: pag.value === '1', vence: $('[name=vence]', box).value, origen: pre.origen }; prodForm(null, null, (p) => { snap.items.push({ productoId: p.id, talle: '', cant: 0 }); compraForm(null, snap, onSaved); }); };
     $('#cfOk', box).onclick = () => {
-      const items = linesToItems(lines); if (!items.length) return ($('#cfErr', box).textContent = 'Elegí el modelo y poné cuántos pares de cada talle.');
+      const err = (m) => ($('#cfErr', box).textContent = m);
+      const merc = esMerc(), items = merc ? linesToItems(lines) : [];
+      if (merc && !items.length) return err('Elegí el modelo y poné cuántos pares de cada talle. Si la factura no es de botines, cambiá arriba de qué es.');
       const g = (n) => $(`[name=${n}]`, box).value.trim(); const pagada = g('pagada') === '1';
-      const c = { id: uid(), fecha: g('fecha') || todayStr(), proveedor: g('prov'), nro: g('nro'), items: items.map((i) => ({ productoId: i.productoId, nombre: i.nombre, talle: i.talle, cant: i.cant, costo: i.precio })), total: numIn(tot.value) || items.reduce((s, i) => s + i.cant * i.precio, 0), pagada, fechaPago: pagada ? (g('fecha') || todayStr()) : '', vence: pagada ? '' : g('vence'), foto: rec.foto, origen: pre.origen || 'app' };
-      if ($('[name=actCosto]', box).checked) items.forEach((i) => { if (i.precio) prod(i.productoId).costo = i.precio; });
-      moverStock(c.items, 1, 'Compra' + (c.proveedor ? ' a ' + c.proveedor : '') + (c.nro ? ' (fact. ' + c.nro + ')' : ''), c.id, c.fecha);
+      const total = numIn(tot.value) || items.reduce((s, i) => s + i.cant * i.precio, 0);
+      if (!merc && !total && !rec.archivo) return err('Poné el total de la factura o adjuntá la foto.');
+      const cid = uid();
+      const c = { id: cid, fecha: g('fecha') || todayStr(), proveedor: g('prov'), nro: g('nro'), clase: g('clase'), detalle: merc ? '' : g('detalle'), items: items.map((i) => ({ productoId: i.productoId, nombre: i.nombre, talle: i.talle, cant: i.cant, costo: i.precio })), total, pagada, fechaPago: pagada ? (g('fecha') || todayStr()) : '', vence: pagada ? '' : g('vence'), archivoId: rec.archivo ? archivoGuardar(rec.archivo, cid) : '', origen: pre.origen || 'app' };
+      if (merc && $('[name=actCosto]', box).checked) items.forEach((i) => { if (i.precio) prod(i.productoId).costo = i.precio; });
+      if (merc) moverStock(c.items, 1, 'Compra' + (c.proveedor ? ' a ' + c.proveedor : '') + (c.nro ? ' (fact. ' + c.nro + ')' : ''), c.id, c.fecha);
       state.compras.push(c);
-      if (!pagada && c.vence) state.eventos.push({ id: uid(), fecha: c.vence, titulo: `Pagar factura ${c.nro || ''} ${c.proveedor ? 'a ' + c.proveedor : ''}`.replace(/\s+/g, ' ').trim(), tipo: 'pagar', monto: c.total, hecho: false, ref: c.id });
-      closeModal(); commit(); toast(`Factura guardada: entraron ${pares(c.items)} pares`); if (onSaved) onSaved(c);
+      if (!pagada && c.vence) state.eventos.push({ id: uid(), fecha: c.vence, titulo: tituloFactura(c), tipo: 'pagar', monto: c.total, hecho: false, aviso: 'diario', creado: todayStr(), ref: c.id });
+      closeModal(); commit(); toast(merc ? `Factura guardada: entraron ${pares(c.items)} pares` : 'Factura guardada ✓'); if (onSaved) onSaved(c);
+      if (!pagada) pedirPermisoAvisos();
     };
-    calc();
+    upd();
   });
 }
+const tituloFactura = (c) => `Pagar factura ${c.nro || ''} ${c.proveedor ? 'de ' + c.proveedor : c.detalle || ''}`.replace(/\s+/g, ' ').trim();
 function compraVer(id) {
   const c = state.compras.find((x) => x.id === id); if (!c) return;
-  modal(`<h3>Factura ${esc(c.nro || '')}</h3><p class="sub">${esc(c.proveedor || 'Sin proveedor')} · ${fmtDate(c.fecha)} · ${c.pagada ? 'pagada el ' + fmtDate(c.fechaPago) : 'a pagar' + (c.vence ? ' (vence ' + fmtDate(c.vence) + ')' : '')}</p>
-    <div class="tablewrap"><table><thead><tr><th>Modelo</th><th>Talle</th><th class="n">Pares</th><th class="n">Costo</th></tr></thead><tbody>${c.items.map((i) => `<tr><td>${esc(prodNombre(i.productoId, i.nombre))}</td><td>${esc(i.talle)}</td><td class="n">${i.cant}</td><td class="n">${fmtMoney(i.costo)}</td></tr>`).join('')}</tbody></table></div>
+  const venc = !c.pagada && c.vence && c.vence < todayStr();
+  modal(`<h3>Factura ${esc(c.nro || '')}</h3><p class="sub">${esc(c.proveedor || 'Sin proveedor')}${c.detalle ? ' · ' + esc(c.detalle) : ''} · ${fmtDate(c.fecha)}</p>
+    <p><span class="pill ${c.pagada ? 'in' : venc ? 'out' : 'warn'}" style="font-size:14px;padding:5px 12px">${c.pagada ? '✓ Pagada el ' + fmtDate(c.fechaPago) : (venc ? 'Sin pagar · venció el ' : 'Sin pagar' + (c.vence ? ' · vence el ' : '')) + (c.vence ? fmtDate(c.vence) : '')}</span></p>
+    ${c.items && c.items.length ? `<div class="tablewrap mt"><table><thead><tr><th>Modelo</th><th>Talle</th><th class="n">Pares</th><th class="n">Costo</th></tr></thead><tbody>${c.items.map((i) => `<tr><td>${esc(prodNombre(i.productoId, i.nombre))}</td><td>${esc(i.talle)}</td><td class="n">${i.cant}</td><td class="n">${fmtMoney(i.costo)}</td></tr>`).join('')}</tbody></table></div>` : ''}
     <p class="b mt" style="font-size:20px">Total ${fmtMoney(c.total)}</p>
-    <div class="modal-actions"><button class="danger izq" id="cvAn">Anular factura</button>${!c.pagada ? '<button class="pri" id="cvPag">💸 La pagué</button>' : ''}<button data-act="close">Cerrar</button></div>`, (box) => {
-    const p = $('#cvPag', box); if (p) p.onclick = () => { c.pagada = true; c.fechaPago = todayStr(); state.eventos.filter((e) => e.ref === c.id).forEach((e) => { e.hecho = true; }); closeModal(); commit(); toast('Factura marcada como pagada'); };
-    $('#cvAn', box).onclick = () => confirmBox('Se borra la factura y esos pares se descuentan del stock.', () => { moverStock(c.items, -1, 'Factura anulada', c.id); state.compras = state.compras.filter((x) => x.id !== id); state.eventos = state.eventos.filter((e) => e.ref !== id); commit(); toast('Factura anulada'); }, 'Anular');
+    ${c.archivoId ? archivoHTML(c.archivoId) : '<div class="row"><button id="cvAdj">📎 Adjuntar foto o PDF</button><span class="small muted">Todavía no tiene archivo guardado.</span></div>'}
+    <div class="modal-actions"><button class="danger izq" id="cvAn">Borrar factura</button>${c.archivoId ? '<button id="cvQuitar">Quitar archivo</button>' : ''}${!c.pagada ? '<button class="pri" id="cvPag">💸 La pagué</button>' : '<button id="cvNoPag">No estaba pagada</button>'}<button data-act="close">Cerrar</button></div>`, (box) => {
+    const on = (sel, fn) => { const b = $(sel, box); if (b) b.onclick = fn; };
+    on('#cvPag', () => { pagarCompra(c); closeModal(); commit(); toast('Factura marcada como pagada ✓'); });
+    on('#cvNoPag', () => { c.pagada = false; c.fechaPago = ''; state.eventos.filter((e) => e.ref === c.id).forEach((e) => { e.hecho = false; }); closeModal(); commit(); toast('Quedó como sin pagar'); });
+    on('#cvAdj', () => elegirArchivo((a) => { c.archivoId = archivoGuardar(a, c.id); commit(); toast('Archivo guardado 📎'); compraVer(id); }));
+    on('#cvQuitar', () => confirmBox('Se borra el archivo guardado de esta factura.', () => { archivoBorrar(c.archivoId); c.archivoId = ''; commit(); compraVer(id); }, 'Quitar'));
+    on('#cvAn', () => confirmBox(c.items && c.items.length ? 'Se borra la factura y esos pares se descuentan del stock.' : 'Se borra la factura y su archivo.', () => { if (c.items && c.items.length) moverStock(c.items, -1, 'Factura anulada', c.id); if (c.archivoId) archivoBorrar(c.archivoId); state.compras = state.compras.filter((x) => x.id !== id); state.eventos = state.eventos.filter((e) => e.ref !== id); commit(); toast('Factura borrada'); }, 'Borrar'));
   });
 }
 
@@ -336,43 +387,72 @@ function muestraVolvio(id) {
 }
 
 // ---------- Calendario ----------
+const COLORES = [['#164e68', 'Azul'], ['#f67a0c', 'Naranja'], ['#1a7f4b', 'Verde'], ['#c0392b', 'Rojo'], ['#7b3fa0', 'Violeta'], ['#c99a06', 'Amarillo'], ['#5a6b76', 'Gris']];
+const colorEv = (e) => e.color || { pagar: '#c0392b', cobrar: '#1a7f4b', visita: '#f67a0c', entrega: '#f67a0c', prestamo: '#7b3fa0', evento: '#164e68' }[e.tipo] || '#164e68';
+const AVISOS = { diario: 'Todos los días hasta ese día, y el día cada 6 horas', dia: 'Solo el mismo día, cada 6 horas', no: 'No avisarme' };
 function itemsDelDia(d) {
-  const out = state.eventos.filter((e) => e.fecha === d).map((e) => ({ k: 'ev', e, dot: (TIPOS_EV[e.tipo] || {}).dot || '' }));
+  const out = state.eventos.filter((e) => e.fecha === d).sort((a, b) => (a.hora || '99').localeCompare(b.hora || '99')).map((e) => ({ k: 'ev', e, color: colorEv(e) }));
   const dm = state.config.diasMuestra || 7;
-  muestrasAfuera().forEach((m) => { if (addDays(m.fecha, dm) === d) out.push({ k: 'mu', m, dot: 'acc' }); });
-  state.ventas.filter((v) => v.fecha === d).forEach((v) => out.push({ k: 've', v, dot: 'in' }));
+  muestrasAfuera().forEach((m) => { if (addDays(m.fecha, dm) === d) out.push({ k: 'mu', m, color: '#f67a0c' }); });
+  state.ventas.filter((v) => v.fecha === d).forEach((v) => out.push({ k: 've', v, color: '#9fb3bd' }));
   return out;
+}
+const chipTxt = (x) => x.k === 'ev' ? x.e.titulo : x.k === 'mu' ? 'Buscar muestra ' + x.m.cliente : 'Venta ' + (x.v.cliente || '');
+function evDetalle(e) {
+  const t = TIPOS_EV[e.tipo] || TIPOS_EV.recordatorio, hoy = todayStr();
+  const venc = !e.hecho && e.fecha < hoy;
+  return `<div class="li ev-li" style="border-left:5px solid ${colorEv(e)};padding-left:10px"><div class="m"><b style="${e.hecho ? 'text-decoration:line-through;opacity:.6' : ''}">${t.ico} ${esc(e.titulo)}</b>
+    <span>${esc(t.lbl)}${e.quien ? ' · ' + esc(e.quien) : ''}${e.hora ? ' · ' + esc(e.hora) : ''}${e.monto ? ' · ' + fmtMoney(e.monto) : ''}${venc ? ' · <b class="c-out">atrasado</b>' : ''}${e.aviso !== 'no' && !e.hecho ? ' · 🔔' : ''}</span>${e.nota ? `<div class="small" style="white-space:pre-wrap;margin-top:2px">${esc(e.nota)}</div>` : ''}</div>
+    <div class="s">${e.hecho ? `<span class="pill in">${e.tipo === 'prestamo' ? 'Devuelto' : 'Hecho'}</span>` : `<button class="sm" data-act="eventoHecho" data-id="${e.id}">${e.tipo === 'prestamo' ? '✓ Lo devolvió' : '✓ Listo'}</button>`}<button class="sm" data-act="eventoEditar" data-id="${e.id}">Editar</button></div></div>`;
 }
 VISTAS.calendario = () => {
   const [y, mo] = ui.calMes.split('-').map(Number), first = new Date(y, mo - 1, 1), start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7));
   const hoy = todayStr(), days = [];
   for (let i = 0; i < 42; i++) { const d = new Date(start); d.setDate(start.getDate() + i); days.push(ymd(d)); }
   const its = itemsDelDia(ui.calSel);
-  return `<div class="spread"><div><h1>Calendario</h1><p class="sub">Pagos, cobros, visitas y recordatorios. Las muestras viejas y las ventas aparecen solas.</p></div><button class="pri" data-act="eventoNuevo">+ Anotar</button></div>
+  const prest = state.eventos.filter((e) => e.tipo === 'prestamo' && !e.hecho).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const prox = state.eventos.filter((e) => !e.hecho && e.tipo !== 'prestamo' && e.fecha >= hoy && e.fecha <= addDays(hoy, 14)).sort((a, b) => (a.fecha + (a.hora || '')).localeCompare(b.fecha + (b.hora || '')));
+  const atras = state.eventos.filter((e) => !e.hecho && e.tipo !== 'prestamo' && e.fecha < hoy);
+  return `<div class="spread"><div><h1>Calendario</h1><p class="sub">Anotá lo que quieras con el color que quieras: eventos, entregas, préstamos, pagos. La app te avisa todos los días hasta que llegue, y ese día cada 6 horas.</p></div>
+    <div class="row"><button data-act="prestamoNuevo">🤝 Presté algo</button><button class="pri" data-act="eventoNuevo">+ Anotar</button></div></div>
+  ${avisosBanner()}
   <div class="card"><div class="spread" style="margin-bottom:10px"><button class="sm" data-act="calMov" data-id="-1">◀</button><b>${mesLbl(ui.calMes)}</b><button class="sm" data-act="calMov" data-id="1">▶</button></div>
   <div class="cal">${['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d) => `<div class="dn">${d}</div>`).join('')}
-  ${days.map((d) => { const it = itemsDelDia(d); return `<button class="${d.slice(0, 7) !== ui.calMes ? 'otro' : ''} ${d === hoy ? 'hoy' : ''} ${d === ui.calSel ? 'sel' : ''}" data-act="calSel" data-id="${d}"><span>${+d.slice(8)}</span><span class="dots">${it.slice(0, 5).map((x) => `<i class="dot ${x.dot}"></i>`).join('')}</span></button>`; }).join('')}</div></div>
-  <h2>${ui.calSel === hoy ? 'Hoy' : parseD(ui.calSel).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}</h2>
-  ${its.length ? `<div class="card"><div class="list">${its.map((x) => x.k === 'ev' ? `<div class="li"><div class="m"><b style="${x.e.hecho ? 'text-decoration:line-through;opacity:.6' : ''}">${(TIPOS_EV[x.e.tipo] || TIPOS_EV.recordatorio).ico} ${esc(x.e.titulo)}</b><span>${esc((TIPOS_EV[x.e.tipo] || TIPOS_EV.recordatorio).lbl)}${x.e.hora ? ' · ' + esc(x.e.hora) : ''}${x.e.monto ? ' · ' + fmtMoney(x.e.monto) : ''}${x.e.nota ? ' · ' + esc(x.e.nota) : ''}</span></div><div class="s">${x.e.hecho ? '<span class="pill in">Hecho</span>' : `<button class="sm" data-act="eventoHecho" data-id="${x.e.id}">✓ Listo</button>`}<button class="sm" data-act="eventoEditar" data-id="${x.e.id}">Editar</button></div></div>`
-    : x.k === 'mu' ? `<div class="li"><div class="m"><b>📦 Buscar muestra de ${esc(x.m.cliente)}</b><span>${esc(resumenItems(x.m.items))} · dejada el ${fmtDate(x.m.fecha)}</span></div><div class="s"><button class="sm" data-act="muestraVolvio" data-id="${x.m.id}">La busqué</button></div></div>`
-    : `<div class="li"><div class="m"><b>🛒 Venta${x.v.cliente ? ' a ' + esc(x.v.cliente) : ''}</b><span>${esc(resumenItems(x.v.items, 2))}</span></div><div class="s"><b>${fmtMoney(x.v.total)}</b></div></div>`).join('')}</div></div>` : '<div class="empty">Nada para este día.</div>'}`;
+  ${days.map((d) => { const it = itemsDelDia(d); return `<button class="${d.slice(0, 7) !== ui.calMes ? 'otro' : ''} ${d === hoy ? 'hoy' : ''} ${d === ui.calSel ? 'sel' : ''}" data-act="calSel" data-id="${d}"><span>${+d.slice(8)}</span><span class="chips">${it.slice(0, 3).map((x) => `<i class="chip" style="background:${x.color}">${esc(chipTxt(x))}</i>`).join('')}${it.length > 3 ? `<i class="mas">+${it.length - 3}</i>` : ''}</span></button>`; }).join('')}</div></div>
+  <div class="spread"><h2>${ui.calSel === hoy ? 'Hoy' : parseD(ui.calSel).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}</h2><button class="sm" data-act="eventoNuevo">+ Anotar este día</button></div>
+  ${its.length ? `<div class="card"><div class="list">${its.map((x) => x.k === 'ev' ? evDetalle(x.e)
+    : x.k === 'mu' ? `<div class="li" style="border-left:5px solid ${x.color};padding-left:10px"><div class="m"><b>📦 Buscar muestra de ${esc(x.m.cliente)}</b><span>${esc(resumenItems(x.m.items))} · dejada el ${fmtDate(x.m.fecha)}</span></div><div class="s"><button class="sm" data-act="muestraVolvio" data-id="${x.m.id}">La busqué</button></div></div>`
+    : `<div class="li" style="border-left:5px solid ${x.color};padding-left:10px"><div class="m"><b>🛒 Venta${x.v.cliente ? ' a ' + esc(x.v.cliente) : ''}</b><span>${esc(resumenItems(x.v.items, 2))}</span></div><div class="s"><b>${fmtMoney(x.v.total)}</b></div></div>`).join('')}</div></div>` : '<div class="empty">Nada para este día.</div>'}
+  <div class="grid g2 mt">
+    <div class="card"><h3>🤝 Prestado (${prest.length})</h3>${prest.length ? `<div class="list">${prest.map((e) => evDetalle(e)).join('')}</div>` : '<div class="empty">No hay nada prestado.</div>'}</div>
+    <div class="card"><h3>📅 Próximas 2 semanas</h3>${atras.length || prox.length ? `<div class="list">${atras.concat(prox).map((e) => evDetalle(e).replace('<span>', `<span>${fmtDateC(e.fecha)} · `)).join('')}</div>` : '<div class="empty">Nada anotado.</div>'}</div>
+  </div>`;
 };
 function eventoForm(id, pre = {}, onSaved) {
-  const e = id ? state.eventos.find((x) => x.id === id) : Object.assign({ fecha: ui.calSel >= todayStr() ? ui.calSel : todayStr(), tipo: 'recordatorio' }, pre);
-  modal(`<h3>${id ? 'Editar' : 'Anotar en el calendario'}</h3><div class="form">
-    <label class="f full">¿Qué hay que hacer?<input name="titulo" value="${esc(e.titulo)}" placeholder="Ej: Visitar obra de Pérez"></label>
+  const e = id ? state.eventos.find((x) => x.id === id) : Object.assign({ fecha: ui.calSel >= todayStr() ? ui.calSel : todayStr(), tipo: 'recordatorio', aviso: 'diario' }, pre);
+  let color = e.color || '';
+  modal(`<h3>${id ? 'Editar' : e.tipo === 'prestamo' ? '🤝 Presté algo' : 'Anotar en el calendario'}</h3><div class="form">
+    <label class="f full"><span id="efTitL">${e.tipo === 'prestamo' ? '¿Qué prestaste?' : '¿Qué es?'}</span><input name="titulo" value="${esc(e.titulo)}" placeholder="${e.tipo === 'prestamo' ? 'Ej: 2 pares Bolt 42 y una campera' : 'Ej: Entrega a Constructora Andes'}"></label>
     <label class="f">Tipo<select name="tipo">${Object.entries(TIPOS_EV).map(([k, t]) => `<option value="${k}" ${k === e.tipo ? 'selected' : ''}>${t.ico} ${t.lbl}</option>`).join('')}</select></label>
-    <label class="f">Fecha<input type="date" name="fecha" value="${e.fecha}"></label>
+    <label class="f quien">¿A quién?<input name="quien" value="${esc(e.quien)}" placeholder="Nombre"></label>
+    <label class="f"><span id="efFecL">${e.tipo === 'prestamo' ? '¿Cuándo lo tiene que devolver?' : 'Fecha'}</span><input type="date" name="fecha" value="${e.fecha}"></label>
     <label class="f">Hora (opcional)<input type="time" name="hora" value="${esc(e.hora)}"></label>
+    <div class="f full"><label class="f">Color</label><div class="colores">${COLORES.map(([c, n]) => `<button type="button" class="col" data-c="${c}" title="${n}" aria-label="${n}" style="background:${c}"></button>`).join('')}</div></div>
+    <label class="f full">Texto / detalles<textarea name="nota" rows="3" placeholder="Lo que quieras anotar">${esc(e.nota)}</textarea></label>
+    <label class="f">Avisarme<select name="aviso">${Object.entries(AVISOS).map(([k, l]) => `<option value="${k}" ${k === (e.aviso || 'diario') ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     <label class="f">Monto (opcional)<input name="monto" inputmode="decimal" value="${e.monto || ''}" placeholder="$"></label>
-    <label class="f full">Nota<input name="nota" value="${esc(e.nota)}"></label><p class="err full" id="efErr"></p></div>
+    <p class="err full" id="efErr"></p></div>
     <div class="modal-actions">${id ? '<button class="danger izq" id="efDel">Borrar</button>' : ''}<button data-act="close">Cancelar</button><button class="pri" id="efOk">Guardar</button></div>`, (box) => {
+    const tipoSel = $('[name=tipo]', box);
+    const upd = () => { const pr = tipoSel.value === 'prestamo'; $('.quien', box).classList.toggle('hidden', !pr); $('#efTitL', box).textContent = pr ? '¿Qué prestaste?' : '¿Qué es?'; $('#efFecL', box).textContent = pr ? '¿Cuándo lo tiene que devolver?' : 'Fecha'; $$('.col', box).forEach((b) => b.classList.toggle('on', b.dataset.c === (color || colorEv({ tipo: tipoSel.value })))); };
+    tipoSel.onchange = upd; $$('.col', box).forEach((b) => { b.onclick = () => { color = b.dataset.c; upd(); }; }); upd();
     $('#efOk', box).onclick = () => {
-      const g = (n) => $(`[name=${n}]`, box).value.trim(); if (!g('titulo')) return ($('#efErr', box).textContent = 'Escribí qué hay que hacer.');
-      const data = { titulo: g('titulo'), tipo: g('tipo'), fecha: g('fecha') || todayStr(), hora: g('hora'), monto: numIn(g('monto')), nota: g('nota') };
-      let rec; if (id) rec = Object.assign(e, data); else { rec = Object.assign({ id: uid(), hecho: false, origen: pre.origen || 'app' }, data); state.eventos.push(rec); }
+      const g = (n) => $(`[name=${n}]`, box).value.trim(); if (!g('titulo')) return ($('#efErr', box).textContent = tipoSel.value === 'prestamo' ? 'Escribí qué prestaste.' : 'Escribí qué es.');
+      const data = { titulo: g('titulo'), tipo: g('tipo'), quien: g('tipo') === 'prestamo' ? g('quien') : '', fecha: g('fecha') || todayStr(), hora: g('hora'), monto: numIn(g('monto')), nota: $('[name=nota]', box).value.trim(), color, aviso: g('aviso') };
+      let rec; if (id) rec = Object.assign(e, data); else { rec = Object.assign({ id: uid(), hecho: false, creado: todayStr(), origen: pre.origen || 'app' }, data); state.eventos.push(rec); }
       ui.calSel = rec.fecha; ui.calMes = rec.fecha.slice(0, 7);
-      closeModal(); commit(); toast('Anotado en el calendario'); if (onSaved) onSaved(rec);
+      closeModal(); commit(); toast(rec.aviso === 'no' ? 'Anotado en el calendario' : 'Anotado. Te voy a ir avisando 🔔'); if (onSaved) onSaved(rec);
+      pedirPermisoAvisos();
     };
     const d = $('#efDel', box); if (d) d.onclick = () => { state.eventos = state.eventos.filter((x) => x.id !== id); closeModal(); commit(); };
   });
@@ -473,14 +553,14 @@ VISTAS.mas = () => {
 Object.assign(ACTS, {
   ventaNueva: () => ventaForm(), ventaVer: (id) => ventaVer(id),
   entradaNueva: () => movStockForm('entrada'), salidaNueva: () => movStockForm('salida'),
-  prodNuevo: () => prodForm(null), prodVer: (id) => prodVer(id),
-  compraNueva: () => compraForm(null), compraVer: (id) => compraVer(id),
+  prodNuevo: () => prodForm(null), prodVer: (id) => prodVer(id), prodEditar: (id) => prodForm(id),
+  compraNueva: () => compraForm(null), facturaArchivo: () => elegirArchivo((a) => compraForm(null, { archivo: a, clase: 'otra' })), compraVer: (id) => compraVer(id),
   muestraNueva: () => muestraForm(), muestraVolvio: (id) => muestraVolvio(id),
   muestraVendida: (id) => { const m = state.muestras.find((x) => x.id === id); if (m) ventaForm({ cliente: m.cliente, telefono: m.telefono, items: m.items.map((i) => Object.assign({}, i, { precio: (prod(i.productoId) || {}).precio || '' })), desdeMuestra: m.id }); },
   muestraBorrar: (id) => confirmBox('Se borra la muestra y los pares vuelven al stock.', () => { const m = state.muestras.find((x) => x.id === id); if (m && m.estado === 'afuera') moverStock(m.items, 1, 'Muestra borrada', m.id); state.muestras = state.muestras.filter((x) => x.id !== id); commit(); }, 'Borrar'),
   muestrasTab: (id) => { ui.muestrasTab = id; render(); }, ventasTab: (id) => { ui.ventasTab = id; render(); }, comprasTab: (id) => { ui.comprasTab = id; render(); },
   cobrar: (id) => { const v = state.ventas.find((x) => x.id === id); if (!v) return; v.cobrado = true; v.fechaCobro = todayStr(); if (!$('#modal').classList.contains('hidden')) closeModal(); commit(); toast(`Cobrado: ${fmtMoney(v.total)}`); },
-  eventoNuevo: () => eventoForm(null), eventoEditar: (id) => eventoForm(id),
+  eventoNuevo: () => eventoForm(null), eventoEditar: (id) => eventoForm(id), prestamoNuevo: () => eventoForm(null, { tipo: 'prestamo', fecha: addDays(todayStr(), 7) }),
   eventoHecho: (id) => { const e = state.eventos.find((x) => x.id === id); if (e) { e.hecho = true; commit(); toast('Listo ✓'); } },
   calSel: (d) => { ui.calSel = d; if (d.slice(0, 7) !== ui.calMes) ui.calMes = d.slice(0, 7); render(); },
   calMov: (k) => { const d = parseD(ui.calMes + '-01'); d.setMonth(d.getMonth() + Number(k)); ui.calMes = ymd(d).slice(0, 7); render(); },

@@ -5,7 +5,7 @@ import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendP
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, onSnapshot, writeBatch } from 'firebase/firestore';
 
 let app, auth, db, negocio = 'deposito-mendoza';
-const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat'];
+const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat', 'archivos'];
 
 window.Cloud = {
   COLS,
