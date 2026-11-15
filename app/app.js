@@ -51,6 +51,8 @@ const TIPOS_EV = {
   entrega: { lbl: 'Entrega', ico: '📦', dot: 'acc' },
   pagar: { lbl: 'Pagar', ico: '🔴', dot: 'out' },
   cobrar: { lbl: 'Cobrar', ico: '🟢', dot: 'in' },
+  evento: { lbl: 'Evento', ico: '🎉', dot: '' },
+  prestamo: { lbl: 'Préstamo (me lo tienen que devolver)', ico: '🤝', dot: 'acc' },
 };
 const MOTIVOS = {
   entrada: ['Llegó mercadería (sin factura)', 'Devolución de cliente', 'Cambio', 'Otro'],
@@ -60,9 +62,9 @@ const MOTIVOS = {
 const EMPTY = () => ({
   version: 1,
   config: { negocio: 'Depósito Mendoza S.A.S.', telefono: '261 5734936', talles: '35-45', diasMuestra: 7, avisoDias: 3, ultimoRespaldo: null },
-  productos: [], stockMovs: [], ventas: [], compras: [], muestras: [], movimientos: [], eventos: [], chat: [],
+  productos: [], stockMovs: [], ventas: [], compras: [], muestras: [], movimientos: [], eventos: [], chat: [], archivos: [],
 });
-const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat'];
+const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat', 'archivos'];
 let state = EMPTY();
 
 function talles() {
@@ -212,6 +214,14 @@ function moverStock(items, signo, motivo, ref, fecha) {
     state.stockMovs.push({ id: uid(), fecha: fecha || todayStr(), productoId: p.id, nombre: p.nombre, talle: it.talle, cant: signo * (Number(it.cant) || 0), motivo, ref: ref || '' });
   }
 }
+// Mercadería que entra sin factura: cuenta como inversión (pares × costo del modelo)
+function inversionEntrada(items, fecha, ref, concepto) {
+  const monto = items.reduce((s, i) => s + (Number(i.cant) || 0) * (Number((prod(i.productoId) || {}).costo) || 0), 0);
+  if (!monto) return '';
+  const id = uid();
+  state.movimientos.push({ id, tipo: 'inversion', categoria: 'Mercadería', concepto: concepto || ('Mercadería: ' + items.map((i) => `${i.cant} ${prodNombre(i.productoId, i.nombre)} ${i.talle}`).join(', ')), monto, fecha: fecha || todayStr(), ref: ref || '' });
+  return id;
+}
 const pares = (items) => (items || []).reduce((s, i) => s + (Number(i.cant) || 0), 0);
 function resumenItems(items, max = 3) {
   const g = {}; (items || []).forEach((i) => { const k = i.productoId || i.nombre; (g[k] = g[k] || { n: prodNombre(i.productoId, i.nombre), t: [] }).t.push((Number(i.cant) > 1 ? i.cant + '×' : '') + i.talle); });
@@ -228,8 +238,10 @@ function resumenMes(m) {
   const cmv = ventas.reduce((s, v) => s + (v.items || []).reduce((a, i) => a + (Number(i.cant) || 0) * (Number(i.costo) || 0), 0), 0);
   const movs = state.movimientos.filter((x) => enMes(x.fecha, m));
   const sumT = (t) => movs.filter((x) => x.tipo === t).reduce((s, x) => s + (Number(x.monto) || 0), 0);
-  const gastos = sumT('gasto'), inversionMovs = sumT('inversion'), otrosIng = sumT('ingreso');
-  const comprasPagadas = state.compras.filter((c) => c.pagada && enMes(c.fechaPago || c.fecha, m)).reduce((s, c) => s + (Number(c.total) || 0), 0);
+  const pagadas = state.compras.filter((c) => c.pagada && enMes(c.fechaPago || c.fecha, m));
+  const facGasto = pagadas.filter((c) => c.clase === 'gasto').reduce((s, c) => s + (Number(c.total) || 0), 0);
+  const gastos = sumT('gasto') + facGasto, inversionMovs = sumT('inversion'), otrosIng = sumT('ingreso');
+  const comprasPagadas = pagadas.filter((c) => c.clase !== 'gasto').reduce((s, c) => s + (Number(c.total) || 0), 0);
   const cobrado = state.ventas.filter((v) => v.pago !== 'Cuenta corriente' ? enMes(v.fecha, m) : (v.cobrado && enMes(v.fechaCobro, m))).reduce((s, v) => s + (Number(v.total) || 0), 0);
   const bruta = vendido - cmv, neta = bruta - gastos + otrosIng;
   const entro = cobrado + otrosIng, salio = gastos + inversionMovs + comprasPagadas;
@@ -260,9 +272,10 @@ function render() {
   const winY = window.scrollY, misma = render._ultima === view;
   const act = document.activeElement, fid = act && act.id && $('#main').contains(act) ? act.id : null;
   let sel = null; try { if (fid && act.selectionStart != null) sel = [act.selectionStart, act.selectionEnd]; } catch {}
-  const scrolls = $$('#main .tablewrap').map((el) => el.scrollLeft);
+  const KEEP = '#main .tablewrap, #main .chat-ej, #main .tabs, #main #chatLog, #main .curva';
+  const scrolls = $$(KEEP).map((el) => [el.scrollLeft, el.scrollTop]);
   $('#main').innerHTML = (cloud.cfg ? `<div class="msync muted">${esc(syncTxt())}</div>` : '') + fn();
-  if (misma) { window.scrollTo(0, winY); $$('#main .tablewrap').forEach((el, i) => { if (scrolls[i]) el.scrollLeft = scrolls[i]; }); }
+  if (misma) { window.scrollTo(0, winY); $$(KEEP).forEach((el, i) => { if (scrolls[i]) { el.scrollLeft = scrolls[i][0]; el.scrollTop = scrolls[i][1]; } }); }
   if (fid) { const el = document.getElementById(fid); if (el) { el.focus({ preventScroll: true }); if (sel) try { el.setSelectionRange(sel[0], sel[1]); } catch {} } }
   render._ultima = view;
   if (typeof afterRender === 'function') afterRender();

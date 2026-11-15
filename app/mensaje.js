@@ -44,23 +44,35 @@ function interpretar(original) {
 
   // ----- tipo -----
   const has = (re) => re.test(t);
-  const pregunta = /\?/.test(original) || /^\s*(cuant[oa]s?|quien(es)?|que (hay|tengo|me)|hay\b|tengo\b|mostrame|decime|stock\b|como (vengo|vamos|va))/.test(t);
-  if (has(/muestra/) && has(/\b(busque|buscamos|retire|retiramos|devolv|volvio|volvieron|trajeron|trajo|recupere|me la dieron|levante)/)) r.tipo = 'muestraVuelta';
-  else if (/^\s*(cuant[oa]s?|quien(es)?|que (hay|tengo|me))\b/.test(t) || pregunta && !has(/\b(vendi|vendimos|entraron|llegaron|deje|gaste|pague)\b/)) r.tipo = 'consulta';
+  const pregunta = /\?/.test(original) || /^\s*(cuant[oa]s?|quien(es)?|a quien(es)?|que (hay|tengo|me|facturas?|debo|le debo|preste)|hay\b|tengo\b|mostrame|decime|stock\b|como (vengo|vamos|va))/.test(t);
+  const hayMod = () => buscarModelos(t).length > 0;
+  const prestados = () => state.eventos.filter((e) => e.tipo === 'prestamo' && !e.hecho);
+  if (/^\s*(ayuda|que (podes|puedo|sabes) (hacer|pedir(te)?|escribir)|como (se usa|funciona|te uso))/.test(t)) r.tipo = 'ayuda';
+  else if (!pregunta && has(/\b(preste|prestamos|deje prestad)/)) { r.tipo = 'evento'; r.prestamo = true; }
+  else if (has(/muestra/) && has(/\b(busque|buscamos|retire|retiramos|devolv|volvio|volvieron|trajeron|trajo|recupere|me la dieron|levante)/)) r.tipo = 'muestraVuelta';
+  else if (/^\s*(cuant[oa]s?|quien(es)?|a quien(es)?|que (hay|tengo|me|facturas?|debo|le debo|preste))\b/.test(t) || pregunta && !has(/\b(vendi|vendimos|entraron|llegaron|deje|gaste|pague)\b/)) r.tipo = 'consulta';
+  else if (has(/\b(nuevo modelo|modelo nuevo|(agrega|agregame|agregar|crea|creame|crear|carga|cargame|cargar|suma|sumar) (el |un )?modelo)\b/)) r.tipo = 'modelo';
+  else if (hayMod() && has(/\b(precio|costo|cuesta|cuestan|me sale|me salen|lo vendo a|los vendo a|se vende a|se venden a|vale|valen)\b/) && !has(/\b(vendi|vendimos|entraron|llegaron|deje|compre)\b/)) r.tipo = 'precio';
+  else if (hayMod() && has(/\b(conte|contamos|corregi|corregir|ajusta|ajustar|ajuste|en realidad (hay|quedan|tengo))\b/)) r.tipo = 'ajuste';
+  else if (!has(/muestra/) && has(/\b(me devolvio|me devolvieron|devolvio|devolvieron|me trajo|me trajeron|ya me (lo|los|la|las) (dio|dieron|trajo))\b/) && prestados().length) r.tipo = 'prestamoVuelta';
   else if (has(/muestra/) || has(/\bdeje\b/) && !has(/\bvend/)) r.tipo = 'muestra';
   else if (has(/\b(me pago|me pagaron|me pago todo|cobre|cobramos|me transfirio|me deposito|me cancelo)\b/)) r.tipo = 'cobro';
   else if (has(/\bvend|\bventa\b|se llev(o|aron)|\bfacture\b/)) r.tipo = 'venta';
-  else if (has(/\bfactura\b|\bcompre\b|\bcompramos\b|\bcompra de\b/) && buscarModelos(t).length) r.tipo = 'compra';
+  else if (has(/\b(pague|pagamos|cancele|pagada|ya esta paga)\b/) && has(/\bfacturas?\b|\bboleta\b/) && debo().length) r.tipo = 'pagoFactura';
+  else if (has(/\b(pague|pagamos|le pague)\b/) && debo().some((c) => norm(c.proveedor).split(/\s+/).some((w) => w.length >= 3 && new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(t)))) r.tipo = 'pagoFactura';
+  else if (has(/\bfactura\b|\bcompre\b|\bcompramos\b|\bcompra de\b/) && hayMod()) r.tipo = 'compra';
+  else if (has(/\bfacturas?\b|\bboleta\b/)) r.tipo = 'factura';
   else if (has(/\bentr(o|aron|ada)\b|\blleg(o|aron)\b|\bingres|\brecib|\brepus|\bsume\b|\bagregue\b/)) r.tipo = 'entrada';
   else if (has(/\bsali(o|eron|da)\b|\bsaque\b|\bsacamos\b|\bretire\b|\brot[oa]s?\b|\bfalla\b|\bdevolvi al proveedor\b|\bmande\b|\benvie\b/) && buscarModelos(t).length) r.tipo = 'salida';
   else if (has(/\binvert|\binversion\b/)) r.tipo = 'inversion';
   else if (has(/\bgast|\bpague\b|\bpagamos\b|\bpago de\b|\bnafta\b|\bcombustible\b|\bgasoil\b|\bflete\b|\balquiler\b|\bsueldo|\bimpuesto|\bafip\b|\barca\b|\bmonotributo\b|\bluz\b|\binternet\b/)) r.tipo = 'gasto';
   else if (has(/\baporte\b|\bpuse plata\b|\bingreso de plata\b/)) r.tipo = 'ingreso';
+  else if (has(/^\s*(listo|hecho|ya esta|ya (hice|fui|entregue|llame|visite|pase|lleve|busque|retire)|termine|cumplido)\b/) && state.eventos.some((e) => !e.hecho && e.tipo !== 'prestamo')) r.tipo = 'eventoHecho';
   else if (has(/\b(recorda|acordate|anota|agenda|tengo que|hay que|turno|reunion|visit|llamar|entregar|ir a|pasar por|cobrar|cobrarle|pagar|pagarle|vence)/)) r.tipo = 'evento';
   else if (has(/\b(ma[nñ]ana|pasado ma[nñ]ana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b|\b\d{1,2}\/\d{1,2}\b/)) r.tipo = 'evento';
 
   // ----- fecha y hora (se sacan del texto para que no confundan talles) -----
-  const hoy = todayStr(), futuro = r.tipo === 'evento';
+  const hoy = todayStr(), futuro = r.tipo === 'evento' || r.tipo === 'factura';
   let m;
   if ((m = t.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/))) { const y = m[3] ? (m[3].length === 2 ? '20' + m[3] : m[3]) : hoy.slice(0, 4); r.fecha = `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; t = blank(t, m.index, m.index + m[0].length); }
   if ((m = t.match(/\bpasado ma[nñ]ana\b/))) { r.fecha = addDays(hoy, 2); t = blank(t, m.index, m.index + m[0].length); }
@@ -113,11 +125,11 @@ function interpretar(original) {
   r.modelosMencionados = ms.length;
 
   // ----- cliente -----
-  const intro = r.tipo === 'muestra' ? '(?:a|al|en|para|en lo de|a la|al de)' : r.tipo === 'cobro' ? '(?:a|de|al)' : '(?:a|al|para|cliente|a la|en)';
-  const STOP = /^(talle|t|con|en|por|pago|paga|pagan|efectivo|transferencia|transf|tarjeta|debito|credito|cuenta|contado|fiado|que|y|e|el|los|las|x|pares?|cada|c\/u|a|la|lo|le|una?|muestra|mi|me|se|sin|pagar|cobrar|buscar|todo|total|precio)$/;
+  const intro = r.tipo === 'muestra' ? '(?:a|al|en|para|en lo de|a la|al de)' : r.tipo === 'cobro' ? '(?:a|de|al)' : r.tipo === 'factura' ? '(?:de|del|a|al)' : '(?:a|al|para|cliente|a la|en)';
+  const STOP = /^(talle|t|con|en|por|pago|paga|pagan|efectivo|transferencia|transf|tarjeta|debito|credito|cuenta|contado|fiado|que|y|e|el|los|las|x|pares?|cada|c\/u|a|la|lo|le|una?|muestra|mi|me|se|sin|pagar|cobrar|buscar|todo|total|precio|hasta|vence|vencimiento|pagada|paga)$/;
   const reC = new RegExp('\\b' + intro + '\\s+([a-zñ][a-zñ.&\'-]*(?:\\s+[a-zñ][a-zñ.&\'-]*){0,5})', 'g');
   while (!r.cliente && (m = reC.exec(t))) {
-    const words = m[1].split(/\s+/); const keep = [];
+    const words = m[1].split(/\s{2,}/)[0].split(/\s+/); const keep = [];
     while (words.length > 1 && /^(la|el|los|las|lo)$/.test(words[0])) words.shift();
     for (const w of words) { if (STOP.test(w) || /^(vend|deje|cobr|entr|lleg|sali|gast|pagu)/.test(w)) break; keep.push(w); }
     while (keep.length && /^(la|el|los|las|lo|de|del)$/.test(keep[0])) keep.shift();
@@ -128,14 +140,18 @@ function interpretar(original) {
       r.cliente = nom;
     }
   }
-  if (!r.fecha) r.fecha = hoy;
+  r.fechaDada = !!r.fecha;
+  if (!r.fecha) r.fecha = r.prestamo ? addDays(hoy, 7) : hoy;
   return r;
 }
 
 // ---------- Qué falta y cómo se describe ----------
 function revisar(r) {
   const f = [];
-  const conItems = ['venta', 'compra', 'entrada', 'salida', 'muestra'].includes(r.tipo);
+  const conItems = ['venta', 'compra', 'entrada', 'salida', 'muestra', 'ajuste'].includes(r.tipo);
+  if (r.tipo === 'precio') { const pr = leerPrecios(r.texto); if (!pr.costo && !pr.precio) f.push('el costo o el precio'); }
+  if (r.tipo === 'modelo' && !nombreModelo(r.texto)) f.push('el nombre del modelo');
+  if (r.tipo === 'factura' && !r.monto) f.push('el total');
   if (conItems) {
     if (!r.items.length) f.push('el modelo');
     if (r.items.some((i) => !i.talle)) f.push('el talle');
@@ -159,9 +175,68 @@ function categoriaGasto(t) {
 }
 const conceptoDe = (txt) => { let s = txt.replace(/\$?\s*\d[\d.,]*\s*(mil|k|lucas?|pesos)?/gi, '').replace(/\b(gaste|gastamos|pague|pagamos|en|de|hoy|ayer)\b/gi, ' ').replace(/\s+/g, ' ').trim(); return s ? s[0].toUpperCase() + s.slice(1) : ''; };
 
+function leerPrecios(texto) { // "costo 30000 y lo vendo a 55 mil" -> { costo, precio }
+  let t = norm(texto); buscarModelos(t).forEach((m) => { t = blank(t, m.s, m.e); });
+  const num = '[^\\d$]{0,25}\\$?\\s*(\\d[\\d.,]*)\\s*(mil|k|lucas?)?';
+  const val = (m) => { let v = numIn(m[2]); if (/mil|k|luca/.test(m[3] || '')) v *= 1000; return v; };
+  const out = { costo: 0, precio: 0 }; let m;
+  if ((m = t.match(new RegExp('\\b(costo|me cuesta|me cuestan|me sale|me salen|lo pago|los pago|lo compro|los compro|me lo dejan|me los dejan)\\b' + num)))) { out.costo = val(m); t = blank(t, m.index, m.index + m[0].length); }
+  if ((m = t.match(new RegExp('\\b(precio|lo vendo|los vendo|se vende|se venden|vendo|venta|vale|valen|cuesta|cuestan|sale|salen)\\b' + num)))) out.precio = val(m);
+  return out;
+}
+function nombreModelo(texto) {
+  const t = norm(texto); const m = t.match(/\b(nuevo modelo|modelo nuevo|modelo)\b\s*:?\s*/); if (!m) return '';
+  let rest = texto.slice(m.index + m[0].length); const nr = norm(rest);
+  const ll = nr.match(/^(que se llama|llamado|se llama|nuevo|de nombre)\s+/); if (ll) rest = rest.slice(ll[0].length);
+  const c = norm(rest).search(/\s*(,|;|\bcosto\b|\bprecio\b|\bcuesta\b|\bme (sale|cuesta)\b|\blo vendo\b|\bvale\b|\bsale\b|\by\b|\$|\b\d{3,}\b)/);
+  let n = (c >= 0 ? rest.slice(0, c) : rest).trim().replace(/[.:]+$/, '');
+  if (n && n === n.toLowerCase()) n = n.replace(/\S+/g, (w) => w[0].toUpperCase() + w.slice(1));
+  return n;
+}
+const COL_PAL = { azul: '#164e68', naranja: '#f67a0c', verde: '#1a7f4b', rojo: '#c0392b', violeta: '#7b3fa0', morado: '#7b3fa0', amarillo: '#c99a06', gris: '#5a6b76' };
+const RE_COLOR = /\b(?:en color|de color|color|en)\s+(azul|naranja|verde|rojo|violeta|morado|amarillo|gris)\b/i;
+const nomFactura = (c) => `${c.nro ? c.nro + ' ' : ''}${c.proveedor ? 'de ' + c.proveedor : c.detalle || ''}`.trim();
+
 // ---------- Ejecutar sin formulario ----------
 function ejecutar(r) { // devuelve {txt, deshacer}
   const id = uid();
+  if (r.tipo === 'precio') {
+    const pr = leerPrecios(r.texto), ids = [...new Set(r.items.map((i) => i.productoId))], prev = [];
+    ids.forEach((pid) => { const p = prod(pid); prev.push({ id: pid, costo: p.costo || 0, precio: p.precio || 0 }); if (pr.costo) p.costo = pr.costo; if (pr.precio) p.precio = pr.precio; });
+    return { txt: '✅ Precios guardados.\n' + ids.map((pid) => { const p = prod(pid); return `${p.nombre}: costo ${p.costo ? fmtMoney(p.costo) : 'sin cargar'} · precio de venta ${p.precio ? fmtMoney(p.precio) : 'sin cargar'}${p.costo && p.precio ? ` · ganás ${fmtMoney(p.precio - p.costo)} por par` : ''}`; }).join('\n'), deshacer: { k: 'precio', prev } };
+  }
+  if (r.tipo === 'modelo') {
+    const nombre = nombreModelo(r.texto), pr = leerPrecios(r.texto);
+    const ya = state.productos.find((p) => !p.archivado && norm(p.nombre).trim() === norm(nombre).trim());
+    if (ya) return { txt: `El modelo ${ya.nombre} ya está cargado. Si querés cambiarle el precio escribí: "precio del ${ya.nombre} 50000".` };
+    state.productos.push({ id, nombre, marca: 'Ringo Work', color: '', tipo: 'Calzado de seguridad', costo: pr.costo, precio: pr.precio, stockMin: 2, alias: '', talles: {}, creado: todayStr() });
+    return { txt: `✅ Modelo nuevo: ${nombre}${pr.costo ? ' · costo ' + fmtMoney(pr.costo) : ''}${pr.precio ? ' · precio ' + fmtMoney(pr.precio) : ''}.\n${pr.costo && pr.precio ? '' : 'Cuando sepas el costo y el precio escribime: "' + nombre + ' costo 30000 precio 50000".\n'}Para cargarle stock: "entraron 10 ${nombre} 42".`, deshacer: { k: 'modelo', id } };
+  }
+  if (r.tipo === 'ajuste') {
+    const cero = /\b(cero|ninguno|no hay|no quedan?|no queda nada)\b/.test(norm(r.texto));
+    const movs = [];
+    r.items.forEach((i) => { if (cero) i.cant = 0; const dif = i.cant - stockT(prod(i.productoId), i.talle); if (dif) movs.push({ productoId: i.productoId, nombre: i.nombre, talle: i.talle, cant: dif }); });
+    if (movs.length) moverStock(movs, 1, 'Conteo por mensaje', id, todayStr());
+    return { txt: `✅ Stock corregido: ${r.items.map((i) => `${prodNombre(i.productoId, i.nombre)} talle ${i.talle} → ${i.cant} pares`).join(', ')}.`, deshacer: { k: 'stock', items: movs, signo: 1 } };
+  }
+  if (r.tipo === 'prestamoVuelta' || r.tipo === 'eventoHecho') {
+    const e = state.eventos.find((x) => x.id === r.eventoId); e.hecho = true;
+    return { txt: r.tipo === 'prestamoVuelta' ? `✅ Listo, ${e.quien ? e.quien + ' devolvió' : 'te devolvieron'}: ${e.titulo}. Ya no te aviso más.` : `✅ Hecho: ${e.titulo}.`, deshacer: { k: 'eventoHecho', id: e.id } };
+  }
+  if (r.tipo === 'pagoFactura') {
+    const c = state.compras.find((x) => x.id === r.compraId); pagarCompra(c, r.fecha > todayStr() ? todayStr() : r.fecha);
+    const quedan = debo().length;
+    return { txt: `✅ Factura ${nomFactura(c)} pagada: ${fmtMoney(c.total)}.${quedan ? ` Te queda${quedan > 1 ? 'n' : ''} ${quedan} por pagar.` : ' No debés ninguna otra 👌'}`, deshacer: { k: 'pagoFactura', id: c.id } };
+  }
+  if (r.tipo === 'factura') {
+    const hoy = todayStr(), tn = norm(r.texto), cat = categoriaGasto(r.texto), gasto = cat !== 'Otro gasto';
+    const pagada = /\b(pague|pagamos|pagada|paga)\b/.test(tn) && !/\b(sin pagar|a pagar|no la pague|falta pagar|vence)\b/.test(tn);
+    const c = { id, fecha: r.fechaDada && r.fecha <= hoy ? r.fecha : hoy, proveedor: gasto ? '' : r.cliente, nro: '', clase: gasto ? 'gasto' : 'otra', detalle: gasto ? cat : '', items: [], total: r.monto, pagada, fechaPago: '', vence: pagada ? '' : (r.fechaDada && r.fecha > hoy ? r.fecha : addDays(hoy, 30)), archivoId: '', origen: 'chat' };
+    if (pagada) c.fechaPago = c.fecha;
+    state.compras.push(c);
+    if (!pagada) state.eventos.push({ id: uid(), fecha: c.vence, titulo: tituloFactura(c), tipo: 'pagar', monto: c.total, hecho: false, aviso: 'diario', creado: hoy, ref: c.id });
+    return { txt: `🧾 Factura guardada ${nomFactura(c)}: ${fmtMoney(c.total)} · ${pagada ? 'pagada' : 'sin pagar, vence el ' + fmtDate(c.vence) + ' (te voy avisando)'}.\nPara guardarle la foto o el PDF tocá el 📎 de abajo.`, deshacer: { k: 'factura', id } };
+  }
   if (r.tipo === 'venta') {
     const items = precioItems(r).map((i) => Object.assign(i, { costo: Number((prod(i.productoId) || {}).costo) || 0 }));
     const pago = r.pago || 'Efectivo';
@@ -173,7 +248,9 @@ function ejecutar(r) { // devuelve {txt, deshacer}
   if (r.tipo === 'entrada' || r.tipo === 'salida') {
     const s = r.tipo === 'entrada' ? 1 : -1;
     moverStock(r.items, s, (s > 0 ? 'Entrada' : 'Salida') + ' por mensaje: ' + r.texto.slice(0, 60), id, r.fecha);
-    return { txt: `✅ ${s > 0 ? 'Entraron' : 'Salieron'} ${detalle(r.items)}. ${r.items.map((i) => `Ahora hay ${stockT(prod(i.productoId), i.talle)} del ${i.talle}`).filter((x, k, a) => a.indexOf(x) === k).join(', ')}.`, deshacer: { k: 'stock', items: r.items, signo: s } };
+    const inv = s > 0 ? inversionEntrada(r.items, r.fecha, id) : '';
+    const invTxt = inv ? ` Lo anoté como inversión: ${fmtMoney(state.movimientos.find((x) => x.id === inv).monto)}.` : (s > 0 ? ' (Si le cargás el costo al modelo, también lo cuento como inversión.)' : '');
+    return { txt: `✅ ${s > 0 ? 'Entraron' : 'Salieron'} ${detalle(r.items)}. ${r.items.map((i) => `Ahora hay ${stockT(prod(i.productoId), i.talle)} del ${i.talle}`).filter((x, k, a) => a.indexOf(x) === k).join(', ')}.${invTxt}`, deshacer: { k: 'stock', items: r.items, signo: s, inv } };
   }
   if (r.tipo === 'muestra') {
     const mu = { id, fecha: r.fecha, cliente: r.cliente, telefono: '', items: r.items.map((i) => ({ productoId: i.productoId, nombre: i.nombre, talle: i.talle, cant: i.cant })), nota: '', estado: 'afuera', origen: 'chat' };
@@ -194,9 +271,12 @@ function ejecutar(r) { // devuelve {txt, deshacer}
     return { txt: `✅ ${TIPOS_MOV[r.tipo].lbl} anotado: ${fmtMoney(r.monto)} en ${cat.toLowerCase()}.`, deshacer: { k: 'mov', id } };
   }
   if (r.tipo === 'evento') {
-    const tipo = /cobr/.test(norm(r.texto)) ? 'cobrar' : /pagar|pagarle/.test(norm(r.texto)) ? 'pagar' : /visit|ir a|pasar por/.test(norm(r.texto)) ? 'visita' : /entreg/.test(norm(r.texto)) ? 'entrega' : 'recordatorio';
-    let tit = r.texto.replace(/^\s*(recordame|recorda(r|me)?|acordate( de)?|anota(me)?( que)?|agenda(me)?|tengo que|hay que)\s*/i, '').trim(); tit = tit.replace(/\b(el |este |el pr[oó]ximo )?(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b|\b(pasado )?ma[nñ]ana\b|\bhoy\b|\b(a las|alas)\s*\d{1,2}([:.]\d{2})?\s*(hs|horas)?\b|\b\d{1,2}[:.]\d{2}\s*(hs)?\b|\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/gi, ' ').replace(/\s+/g, ' ').trim(); tit = tit[0] ? tit[0].toUpperCase() + tit.slice(1) : r.texto;
-    state.eventos.push({ id, fecha: r.fecha, hora: r.hora, titulo: tit, tipo, monto: r.monto || 0, hecho: false, origen: 'chat' });
+    const tipo = r.prestamo ? 'prestamo' : /cobr/.test(norm(r.texto)) ? 'cobrar' : /pagar|pagarle/.test(norm(r.texto)) ? 'pagar' : /visit|ir a|pasar por/.test(norm(r.texto)) ? 'visita' : /entreg/.test(norm(r.texto)) ? 'entrega' : 'recordatorio';
+    let tit = r.texto.replace(/^\s*(recordame|recorda(r|me)?|acordate( de)?|anota(me)?( que)?|agenda(me)?|tengo que|hay que)\s*/i, '').trim(); tit = tit.replace(/\b(el |este |el pr[oó]ximo )?(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b|\b(pasado )?ma[nñ]ana\b|\bhoy\b|\b(a las|alas)\s*\d{1,2}([:.]\d{2})?\s*(hs|horas)?\b|\b\d{1,2}[:.]\d{2}\s*(hs)?\b|\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/gi, ' ').replace(/\s+/g, ' ').trim(); if (r.prestamo) { tit = tit.replace(/^\s*(ya )?(le |les )?(prest[eé]|prestamos|dej[eé] prestad[oa]s?)\s*/i, ''); if (r.cliente) tit = tit.replace(new RegExp('\\s*\\b(a|al|a la|para)\\s+' + r.cliente.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), ' '); tit = tit.replace(/\s*\bhasta( el)?\s*$/i, '').replace(/\s+/g, ' ').trim(); }
+    const cm = r.texto.match(RE_COLOR), color = cm ? COL_PAL[cm[1].toLowerCase()] : ''; if (cm) tit = tit.replace(RE_COLOR, ' ').replace(/\s+/g, ' ').trim();
+    tit = tit[0] ? tit[0].toUpperCase() + tit.slice(1) : r.texto;
+    state.eventos.push({ id, fecha: r.fecha, hora: r.hora, titulo: tit, tipo, color, quien: r.prestamo ? r.cliente : '', monto: r.monto || 0, hecho: false, aviso: 'diario', creado: todayStr(), origen: 'chat' });
+    if (r.prestamo) return { txt: `🤝 Anotado el préstamo${r.cliente ? ' a ' + r.cliente : ''}: ${tit}. Te aviso todos los días hasta el ${fmtDate(r.fecha)}${r.fechaDada ? '' : ' (le puse una semana; cambialo en el calendario si querés)'}.`, deshacer: { k: 'evento', id } };
     return { txt: `✅ Anotado en el calendario para el ${parseD(r.fecha).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}${r.hora ? ' a las ' + r.hora : ''}: ${tit}`, deshacer: { k: 'evento', id } };
   }
   return null;
@@ -204,17 +284,26 @@ function ejecutar(r) { // devuelve {txt, deshacer}
 function deshacer(d) {
   if (!d) return;
   if (d.k === 'venta') anularVenta(d.id);
-  else if (d.k === 'stock') { moverStock(d.items, -d.signo, 'Corrección (se deshizo un mensaje)'); }
+  else if (d.k === 'stock') { moverStock(d.items, -d.signo, 'Corrección (se deshizo un mensaje)'); if (d.inv) state.movimientos = state.movimientos.filter((x) => x.id !== d.inv); }
   else if (d.k === 'muestra') { const mu = state.muestras.find((x) => x.id === d.id); if (mu && mu.estado === 'afuera') moverStock(mu.items, 1, 'Corrección (se deshizo un mensaje)', mu.id); state.muestras = state.muestras.filter((x) => x.id !== d.id); }
   else if (d.k === 'muestraVuelta') { const mu = state.muestras.find((x) => x.id === d.id); if (mu) { moverStock(mu.items, -1, 'Corrección (se deshizo un mensaje)', mu.id); mu.estado = 'afuera'; delete mu.fechaCierre; } }
   else if (d.k === 'cobro') { const v = state.ventas.find((x) => x.id === d.id); if (v) { v.cobrado = false; delete v.fechaCobro; } }
   else if (d.k === 'mov') state.movimientos = state.movimientos.filter((x) => x.id !== d.id);
   else if (d.k === 'evento') state.eventos = state.eventos.filter((x) => x.id !== d.id);
+  else if (d.k === 'precio') d.prev.forEach((x) => { const p = prod(x.id); if (p) { p.costo = x.costo; p.precio = x.precio; } });
+  else if (d.k === 'modelo') state.productos = state.productos.filter((x) => x.id !== d.id);
+  else if (d.k === 'eventoHecho') { const e = state.eventos.find((x) => x.id === d.id); if (e) e.hecho = false; }
+  else if (d.k === 'pagoFactura') { const c = state.compras.find((x) => x.id === d.id); if (c) { c.pagada = false; c.fechaPago = ''; state.eventos.filter((e) => e.ref === c.id).forEach((e) => { e.hecho = false; }); } }
+  else if (d.k === 'factura') { const c = state.compras.find((x) => x.id === d.id); if (c && c.archivoId) archivoBorrar(c.archivoId); state.compras = state.compras.filter((x) => x.id !== d.id); state.eventos = state.eventos.filter((e) => e.ref !== d.id); }
 }
 
 // ---------- Consultas ----------
 function responderConsulta(r) {
   const t = norm(r.texto), hoy = todayStr();
+  if (r.items.length && /precio|costo|cuesta|sale|vale|gano/.test(t)) return [...new Set(r.items.map((i) => i.productoId))].map(prod).map((p) => `${p.nombre}: costo ${p.costo ? fmtMoney(p.costo) : 'sin cargar'} · precio de venta ${p.precio ? fmtMoney(p.precio) : 'sin cargar'}${p.costo && p.precio ? ` · ganás ${fmtMoney(p.precio - p.costo)} por par` : ''}`).join('\n');
+  if (/invert|inversion/.test(t)) { const rm = resumenMes(hoy.slice(0, 7)); return `En ${MESES[+hoy.slice(5, 7) - 1].toLowerCase()} llevás invertido ${fmtMoney(rm.inversion)}.\nMercadería que hay en el depósito, a costo: ${fmtMoney(valorStock())}.`; }
+  if (/prest/.test(t)) { const p = state.eventos.filter((e) => e.tipo === 'prestamo' && !e.hecho); return p.length ? 'Tenés prestado:\n' + p.map((e) => `• ${e.quien || 'Sin nombre'}: ${e.titulo} (lo devuelve el ${fmtDate(e.fecha)})`).join('\n') : 'No tenés nada prestado.'; }
+  if (/\b(debo|facturas?|a pagar|tengo que pagar)\b/.test(t) && !/me deben?/.test(t)) { const d = debo(); return d.length ? 'Facturas sin pagar:\n' + d.map((c) => `• ${c.proveedor || c.detalle || 'Factura'}${c.nro ? ' ' + c.nro : ''}: ${fmtMoney(c.total)}${c.vence ? ' (vence el ' + fmtDate(c.vence) + ')' : ''}`).join('\n') + `\nTotal: ${fmtMoney(d.reduce((s, c) => s + (+c.total || 0), 0))}` : 'No debés ninguna factura 👌'; }
   if (r.items.length || /stock|hay|tengo|quedan?/.test(t) && !/vend|deb|muestra|gan/.test(t)) {
     const ids = [...new Set(r.items.map((i) => i.productoId))];
     const ps = ids.length ? ids.map(prod) : state.productos.filter((p) => !p.archivado);
@@ -239,7 +328,16 @@ function responderConsulta(r) {
 }
 
 // ---------- Chat ----------
-const AYUDA = 'No entendí bien 🤔. Probá así:\n• "vendí 2 bolt 42 a Juan 85000"\n• "entraron 10 xr 40 y 5 xr 41"\n• "dejé muestra high boots 43 a Constructora Andes"\n• "busqué la muestra de Constructora Andes"\n• "gasté 20000 de nafta"\n• "el lunes a las 10 visitar obra Pérez"\n• "¿cuánto hay de bolt?"\nO elegí qué querés cargar:';
+const EJEMPLOS = '🛒 Ventas: "vendí 2 bolt 42 a Juan 85000" · "Juan me pagó"\n📥 Stock: "entraron 10 xr 40 y 5 xr 41" · "salieron 2 bolt 41 rotos" · "conté 6 bolt 42"\n🏷️ Modelos y precios: "bolt costo 30000 precio 55000" · "nuevo modelo Titan 03"\n📦 Muestras: "dejé muestra high boots 43 a Constructora Andes" · "busqué la muestra de Andes"\n🤝 Préstamos: "le presté una campera a Pedro hasta el viernes" · "Pedro me devolvió la campera"\n🧾 Facturas: "factura de Ringo 500000 vence el 30" · "pagué la factura de Ringo" · el 📎 guarda la foto\n💸 Plata: "gasté 20000 de nafta" · "invertí 100000 en estanterías"\n📅 Calendario: "el lunes a las 10 entregar a obra Pérez en rojo" · "listo la entrega de Pérez"\n❓ Preguntas: "¿cuánto hay de bolt?" · "¿cuánto vendí este mes?" · "¿qué debo?" · "¿quién me debe?" · "¿qué presté?"';
+const AYUDA = 'No entendí bien 🤔. Podés escribirme cosas así:\n' + EJEMPLOS + '\nO elegí qué querés cargar:';
+const ELEGIR = { // cuando hay que elegir sobre cuál registro actuar
+  cobro: { key: 'ventaId', lista: () => meDeben(), get: (id) => state.ventas.find((x) => x.id === id), nom: (x) => x.cliente, lbl: (x) => `${x.cliente || 'Sin nombre'} · ${fmtMoney(x.total)}`, q: '¿Cuál te pagaron?', nada: 'No hay ventas a cuenta pendientes de cobro.' },
+  muestraVuelta: { key: 'muestraId', lista: () => muestrasAfuera(), get: (id) => state.muestras.find((x) => x.id === id), nom: (x) => x.cliente, lbl: (x) => `${x.cliente || 'Sin nombre'} · ${resumenItems(x.items, 1)}`, q: '¿Cuál muestra volvió?', nada: 'No hay muestras afuera.' },
+  prestamoVuelta: { key: 'eventoId', lista: () => state.eventos.filter((e) => e.tipo === 'prestamo' && !e.hecho), get: (id) => state.eventos.find((x) => x.id === id), nom: (x) => (x.quien || '') + ' ' + x.titulo, lbl: (x) => `${x.quien || 'Sin nombre'} · ${x.titulo}`, q: '¿Qué te devolvieron?', nada: 'No tenés nada prestado.' },
+  eventoHecho: { key: 'eventoId', lista: () => state.eventos.filter((e) => e.tipo !== 'prestamo' && !e.hecho).sort((a, b) => a.fecha.localeCompare(b.fecha)), get: (id) => state.eventos.find((x) => x.id === id), nom: (x) => x.titulo, lbl: (x) => `${fmtDateC(x.fecha)} · ${x.titulo}`, q: '¿Qué es lo que ya hiciste?', nada: 'No hay nada pendiente en el calendario.' },
+  pagoFactura: { key: 'compraId', lista: () => debo(), get: (id) => state.compras.find((x) => x.id === id), nom: (x) => [x.proveedor, x.detalle, x.nro].join(' '), lbl: (x) => `${x.proveedor || x.detalle || 'Factura'}${x.nro ? ' ' + x.nro : ''} · ${fmtMoney(x.total)}`, q: '¿Cuál factura pagaste?', nada: 'No hay facturas sin pagar.' },
+};
+const SIN_PESO = /^(para|con|los|las|del|que|una|uno|por|the|sus|mis|este|esta|factura|pagar|entrega|entregar|listo|hecho)$/;
 const chatOrden = () => state.chat.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
 function chatPush(m) { const r = Object.assign({ id: uid(), ts: Date.now(), fecha: todayStr(), hora: new Date().toTimeString().slice(0, 5) }, m); state.chat.push(r); if (state.chat.length > 300) { const ord = chatOrden(); const fuera = new Set(ord.slice(0, state.chat.length - 300).map((x) => x.id)); state.chat = state.chat.filter((x) => !fuera.has(x.id)); } return r; }
 function procesarMensaje(txt) {
@@ -254,20 +352,21 @@ function procesarMensaje(txt) {
 function procesarUno(txt) {
   const r = revisar(interpretar(txt));
   if (!r.tipo) { chatPush({ de: 'app', texto: AYUDA, botones: 'menu', original: txt }); return; }
+  if (r.tipo === 'ayuda') { chatPush({ de: 'app', texto: 'Podés pedirme todo lo que hace la app, escribiendo o dictando:\n' + EJEMPLOS + '\nSi me equivoco, tocá ↩️ Deshacer.', original: txt }); return; }
   if (r.tipo === 'consulta') { chatPush({ de: 'app', texto: responderConsulta(r) || AYUDA, botones: responderConsulta(r) ? '' : 'menu', original: txt }); return; }
-  if (r.tipo === 'muestraVuelta' || r.tipo === 'cobro') {
-    const t = norm(txt);
-    const lista = r.tipo === 'muestraVuelta' ? muestrasAfuera() : meDeben();
-    let cand = lista.filter((x) => norm(x.cliente).split(/\s+/).some((w) => w.length >= 3 && new RegExp('\\b' + w + '\\b').test(t)));
+  if (ELEGIR[r.tipo]) {
+    const E = ELEGIR[r.tipo], t = norm(txt), lista = E.lista();
+    let cand = lista.filter((x) => norm(E.nom(x)).split(/[^a-z0-9ñ]+/).some((w) => w.length >= 3 && !SIN_PESO.test(w) && new RegExp('(^|[^a-z0-9ñ])' + w + '([^a-z0-9ñ]|$)').test(t)));
     if (r.tipo === 'muestraVuelta' && r.items.length) cand = (cand.length ? cand : lista).filter((x) => x.items.some((i) => r.items.some((j) => j.productoId === i.productoId)));
-    if (cand.length === 1) { r[r.tipo === 'cobro' ? 'ventaId' : 'muestraId'] = cand[0].id; const res = ejecutar(r); chatPush({ de: 'app', texto: res.txt, deshacer: res.deshacer, original: txt }); return; }
-    if (!lista.length) { chatPush({ de: 'app', texto: r.tipo === 'cobro' ? 'No hay ventas a cuenta pendientes de cobro.' : 'No hay muestras afuera.', original: txt }); return; }
-    chatPush({ de: 'app', texto: (r.tipo === 'cobro' ? '¿Cuál te pagaron?' : '¿Cuál muestra volvió?'), elegir: { tipo: r.tipo, ids: (cand.length ? cand : lista).slice(0, 8).map((x) => x.id) }, original: txt });
+    if (r.tipo === 'pagoFactura' && cand.length > 1 && r.monto) { const ex = cand.filter((x) => Number(x.total) === r.monto); if (ex.length) cand = ex; }
+    if (cand.length === 1) { r[E.key] = cand[0].id; const res = ejecutar(r); chatPush({ de: 'app', texto: res.txt, deshacer: res.deshacer, original: txt }); return; }
+    if (!lista.length) { chatPush({ de: 'app', texto: E.nada, original: txt }); return; }
+    chatPush({ de: 'app', texto: E.q, elegir: { tipo: r.tipo, ids: (cand.length ? cand : lista).slice(0, 8).map((x) => x.id) }, original: txt });
     return;
   }
   if (!r.falta.length) { const res = ejecutar(r); chatPush({ de: 'app', texto: res.txt, deshacer: res.deshacer, original: txt }); return; }
   // falta algo: se pregunta con un formulario ya completado
-  const que = { venta: 'una venta', compra: 'una factura de compra', entrada: 'mercadería que entró', salida: 'mercadería que salió', muestra: 'una muestra', gasto: 'un gasto', inversion: 'una inversión', ingreso: 'un ingreso', evento: 'algo para el calendario' }[r.tipo];
+  const que = { venta: 'una venta', compra: 'una factura de compra', entrada: 'mercadería que entró', salida: 'mercadería que salió', muestra: 'una muestra', gasto: 'un gasto', inversion: 'una inversión', ingreso: 'un ingreso', evento: r.prestamo ? 'un préstamo' : 'algo para el calendario', precio: 'el precio de un modelo', modelo: 'un modelo nuevo', ajuste: 'un conteo de stock', factura: 'una factura' }[r.tipo];
   chatPush({ de: 'app', texto: `Entendí que es ${que}${r.items.length ? ': ' + detalle(r.items) : ''}${r.cliente ? ' · ' + r.cliente : ''}${r.monto ? ' · ' + fmtMoney(r.monto) : ''}.\n${r.tipo === 'compra' ? 'Revisá los costos y si la pagaste, y guardala.' : 'Me falta ' + r.falta.join(' y ') + '. Tocá Completar.'}`, pendiente: r, estado: 'pendiente', original: txt });
 }
 function abrirPendiente(msg) {
@@ -279,16 +378,20 @@ function abrirPendiente(msg) {
   else if (r.tipo === 'entrada' || r.tipo === 'salida') movStockForm(r.tipo, base, done);
   else if (r.tipo === 'muestra') muestraForm(base, done);
   else if (['gasto', 'inversion', 'ingreso'].includes(r.tipo)) movForm(r.tipo, null, { concepto: conceptoDe(r.texto), categoria: r.tipo === 'gasto' ? categoriaGasto(r.texto) : undefined, monto: r.monto, fecha: r.fecha, origen: 'chat' }, done);
-  else if (r.tipo === 'evento') eventoForm(null, { titulo: r.texto, fecha: r.fecha, hora: r.hora, origen: 'chat' }, done);
+  else if (r.tipo === 'evento') eventoForm(null, Object.assign({ titulo: r.prestamo ? '' : r.texto, fecha: r.fecha, hora: r.hora, origen: 'chat' }, r.prestamo ? { tipo: 'prestamo', quien: r.cliente } : {}), done);
+  else if (r.tipo === 'factura') compraForm(null, { clase: categoriaGasto(r.texto) !== 'Otro gasto' ? 'gasto' : 'otra', proveedor: r.cliente, total: r.monto || null, pagada: false, origen: 'chat' }, done);
+  else if (r.tipo === 'precio' && r.items[0]) prodForm(r.items[0].productoId, null, done);
+  else if (r.tipo === 'modelo') { const pr = leerPrecios(r.texto); prodForm(null, { nombre: nombreModelo(r.texto), costo: pr.costo, precio: pr.precio }, done); }
+  else if (r.tipo === 'ajuste' && r.items[0]) { contarForm(r.items[0].productoId); msg.estado = 'cargado'; save(); }
 }
 
 VISTAS.mensaje = () => {
   const msgs = chatOrden().slice(-80);
   let dia = '';
   return `<div class="spread"><div><h1>💬 Cargar por mensaje</h1><p class="sub">Escribile a la app como le escribirías a alguien por WhatsApp. Podés tocar el 🎤 del teclado y dictar.</p></div></div>
-  <div class="chat" id="chatLog">${msgs.length ? msgs.map((m) => { const sep = m.fecha !== dia ? `<div class="chat-dia">${m.fecha === todayStr() ? 'Hoy' : fmtDate(m.fecha)}</div>` : ''; dia = m.fecha; return sep + burbuja(m); }).join('') : `<div class="burbuja app"><div class="txt">Hola 👋 Contame qué hiciste y lo cargo. Por ejemplo:\n• "vendí 2 bolt 42 a Juan 85000"\n• "entraron 10 xr 40 y 5 xr 41"\n• "dejé muestra high boots 43 a Constructora Andes"\n• "gasté 20000 de nafta"\n• "¿cuánto hay de bolt?"</div></div>`}</div>
-  <div class="chat-ej">${['vendí 1 bolt 42 a ', 'entraron ', 'dejé muestra ', 'busqué la muestra de ', 'gasté ', '¿cuánto hay de '].map((e) => `<button class="sm" data-act="chatEj" data-id="${esc(e)}">${esc(e.replace(/\s$/, '…'))}</button>`).join('')}</div>
-  <div class="chat-bar"><textarea id="chatTxt" rows="1" placeholder="Escribí un mensaje…" enterkeyhint="send">${esc(ui.msg)}</textarea><button class="acc" data-act="chatEnviar" aria-label="Enviar">➤</button></div>`;
+  <div class="chat" id="chatLog">${msgs.length ? msgs.map((m) => { const sep = m.fecha !== dia ? `<div class="chat-dia">${m.fecha === todayStr() ? 'Hoy' : fmtDate(m.fecha)}</div>` : ''; dia = m.fecha; return sep + burbuja(m); }).join('') : `<div class="burbuja app"><div class="txt">Hola 👋 Contame qué hiciste y lo cargo. Desde acá podés manejar toda la app:\n${esc(EJEMPLOS)}</div></div>`}</div>
+  <div class="chat-ej">${['vendí 1 bolt 42 a ', 'entraron ', 'dejé muestra ', 'busqué la muestra de ', 'gasté ', 'le presté ', 'me devolvió ', 'factura de ', 'pagué la factura de ', 'precio del ', '¿cuánto hay de ', '¿qué debo?', 'ayuda'].map((e) => `<button class="sm" data-act="chatEj" data-id="${esc(e)}">${esc(e.replace(/\s$/, '…'))}</button>`).join('')}</div>
+  <div class="chat-bar"><button data-act="chatAdjuntar" aria-label="Guardar foto o PDF de una factura" title="Guardar foto o PDF de una factura">📎</button><textarea id="chatTxt" rows="1" placeholder="Escribí un mensaje…" enterkeyhint="send">${esc(ui.msg)}</textarea><button class="acc" data-act="chatEnviar" aria-label="Enviar">➤</button></div>`;
 };
 function burbuja(m) {
   if (m.de === 'yo') return `<div class="burbuja yo"><div class="txt">${esc(m.texto)}</div><div class="hora">${esc(m.hora)}${m.usuario && cloud.email && m.usuario !== cloud.email ? ' · ' + esc(m.usuario.split('@')[0]) : ''}</div></div>`;
@@ -297,10 +400,10 @@ function burbuja(m) {
   if (m.deshecho) extra = '<div class="small muted">↩️ Deshecho</div>';
   if (m.estado === 'pendiente') extra = `<div class="row"><button class="sm pri" data-act="chatCompletar" data-id="${m.id}">✏️ Completar</button><button class="sm" data-act="chatDescartar" data-id="${m.id}">Descartar</button></div>`;
   if (m.estado === 'descartado') extra = '<div class="small muted">Descartado</div>';
-  if (m.botones === 'menu' && !m.usado) extra = `<div class="row">${[['venta', '🛒 Venta'], ['entrada', '📥 Entró'], ['salida', '📤 Salió'], ['muestra', '📦 Muestra'], ['gasto', '💸 Gasto'], ['evento', '📅 Recordatorio']].map(([k, l]) => `<button class="sm" data-act="chatMenu" data-id="${m.id}|${k}">${l}</button>`).join('')}</div>`;
+  if (m.botones === 'menu' && !m.usado) extra = `<div class="row">${[['venta', '🛒 Venta'], ['entrada', '📥 Entró'], ['salida', '📤 Salió'], ['muestra', '📦 Muestra'], ['gasto', '💸 Gasto'], ['factura', '🧾 Factura'], ['prestamo', '🤝 Presté'], ['evento', '📅 Recordatorio']].map(([k, l]) => `<button class="sm" data-act="chatMenu" data-id="${m.id}|${k}">${l}</button>`).join('')}</div>`;
   if (m.elegir && !m.usado) {
-    const lst = m.elegir.ids.map((id) => m.elegir.tipo === 'cobro' ? state.ventas.find((v) => v.id === id) : state.muestras.find((x) => x.id === id)).filter(Boolean);
-    extra = `<div class="list">${lst.map((x) => `<button class="sm" style="justify-content:flex-start;margin-top:4px" data-act="chatElegir" data-id="${m.id}|${x.id}">${esc(x.cliente || 'Sin nombre')} · ${m.elegir.tipo === 'cobro' ? fmtMoney(x.total) : esc(resumenItems(x.items, 1))}</button>`).join('')}</div>`;
+    const E = ELEGIR[m.elegir.tipo]; const lst = m.elegir.ids.map((id) => E.get(id)).filter(Boolean);
+    extra = `<div class="list">${lst.map((x) => `<button class="sm" style="justify-content:flex-start;margin-top:4px" data-act="chatElegir" data-id="${m.id}|${x.id}">${esc(E.lbl(x))}</button>`).join('')}</div>`;
   }
   return `<div class="burbuja app"><div class="txt">${esc(m.texto)}</div>${extra}<div class="hora">${esc(m.hora)}</div></div>`;
 }
@@ -316,10 +419,17 @@ function afterRender() {
 const chatMsg = (id) => state.chat.find((x) => x.id === id);
 Object.assign(ACTS, {
   chatEnviar: () => { const ta = $('#chatTxt'); const v = ta ? ta.value : ui.msg; if (!v.trim()) return; ui.msg = ''; chatScroll = true; procesarMensaje(v); const t2 = $('#chatTxt'); if (t2 && window.innerWidth > 760) t2.focus(); },
-  chatEj: (txt) => { ui.msg = txt; render(); const ta = $('#chatTxt'); if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } },
+  chatEj: (txt) => { ui.msg = txt; const ta = $('#chatTxt'); if (ta) { ta.value = txt; ta.dispatchEvent(new Event('input')); } if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } },
   chatDeshacer: (id) => { const m = chatMsg(id); if (!m || m.deshecho) return; deshacer(m.deshacer); m.deshecho = true; commit(); toast('Deshecho'); },
   chatCompletar: (id) => { const m = chatMsg(id); if (m) abrirPendiente(m); },
+  chatAdjuntar: () => elegirArchivo((a) => {
+    const ult = chatOrden().slice().reverse().find((m) => m.de === 'app' && m.deshacer && m.deshacer.k === 'factura' && !m.deshecho);
+    const c = ult && state.compras.find((x) => x.id === ult.deshacer.id);
+    chatScroll = true;
+    if (c && !c.archivoId && Date.now() - (ult.ts || 0) < 15 * 60000) { c.archivoId = archivoGuardar(a, c.id); chatPush({ de: 'app', texto: `📎 Listo, guardé el archivo en la factura ${nomFactura(c)}.` }); commit(); return; }
+    compraForm(null, { archivo: a, clase: 'otra', origen: 'chat' }, (f) => { chatPush({ de: 'app', texto: `🧾 Factura guardada con su archivo${nomFactura(f) ? ' (' + nomFactura(f) + ')' : ''}: ${fmtMoney(f.total)} · ${f.pagada ? 'pagada' : 'sin pagar' + (f.vence ? ', vence el ' + fmtDate(f.vence) : '')}.` }); commit(); });
+  }),
   chatDescartar: (id) => { const m = chatMsg(id); if (m) { m.estado = 'descartado'; commit(); } },
-  chatMenu: (v) => { const [id, k] = v.split('|'); const m = chatMsg(id); if (!m) return; const r = revisar(interpretar(m.original || '')); r.tipo = k; const msg = { pendiente: r }; m.usado = true; save(); abrirPendiente(Object.assign(msg, { texto: '' })); },
-  chatElegir: (v) => { const [id, x] = v.split('|'); const m = chatMsg(id); if (!m) return; const r = { tipo: m.elegir.tipo, fecha: todayStr(), texto: m.original, items: [] }; r[m.elegir.tipo === 'cobro' ? 'ventaId' : 'muestraId'] = x; const res = ejecutar(r); m.usado = true; chatPush({ de: 'app', texto: res.txt, deshacer: res.deshacer }); chatScroll = true; commit(); },
+  chatMenu: (v) => { const [id, k] = v.split('|'); const m = chatMsg(id); if (!m) return; const r = revisar(interpretar(m.original || '')); r.tipo = k; if (k === 'prestamo') { r.tipo = 'evento'; r.prestamo = true; } const msg = { pendiente: r }; m.usado = true; save(); abrirPendiente(Object.assign(msg, { texto: '' })); },
+  chatElegir: (v) => { const [id, x] = v.split('|'); const m = chatMsg(id); if (!m) return; const r = { tipo: m.elegir.tipo, fecha: todayStr(), texto: m.original, items: [] }; r[ELEGIR[m.elegir.tipo].key] = x; const res = ejecutar(r); m.usado = true; chatPush({ de: 'app', texto: res.txt, deshacer: res.deshacer }); chatScroll = true; commit(); },
 });
