@@ -2,10 +2,13 @@
 /* Pantallas y formularios de Depósito Mendoza */
 
 // ---------- Inicio ----------
+// Nombre para el saludo: cada usuario puede poner el suyo en Ajustes; si no, Federico.
+const claveNombre = () => cloud.email || 'este-dispositivo';
+const miNombre = () => (state.config.nombres || {})[claveNombre()] || 'Federico';
 VISTAS.inicio = () => {
   const hoy = todayStr(), mes = hoy.slice(0, 7), r = resumenMes(mes);
   const vh = state.ventas.filter((v) => v.fecha === hoy);
-  const h = new Date().getHours(), saludo = h < 13 ? 'Buen día' : h < 20 ? 'Buenas tardes' : 'Buenas noches';
+  const h = new Date().getHours(), saludo = (h < 13 ? 'Buenos días' : h < 20 ? 'Buenas tardes' : 'Buenas noches') + ', ' + miNombre();
   const dm = state.config.diasMuestra || 7;
   const mAf = muestrasAfuera().map((m) => ({ m, d: daysBetween(m.fecha, hoy) })).sort((a, b) => b.d - a.d);
   const mBuscar = mAf.filter((x) => x.d >= dm);
@@ -448,6 +451,7 @@ VISTAS.ajustes = () => {
   const c = state.config;
   return `<h1>Ajustes</h1><p class="sub">Datos del negocio y opciones de la app.</p>
   <div class="card"><div class="form">
+    <label class="f">Tu nombre (para el saludo)<input id="cfNom" value="${esc(miNombre())}"></label>
     <label class="f">Nombre del negocio<input id="cfNeg" value="${esc(c.negocio)}"></label>
     <label class="f">Teléfono del negocio<input id="cfTel" value="${esc(c.telefono)}"></label>
     <label class="f">Talles que manejás<input id="cfTal" value="${esc(c.talles)}" placeholder="35-45"></label>
@@ -486,7 +490,7 @@ Object.assign(ACTS, {
     [['Bolt 02', 'Marrón', 'bolt'], ['Air Fly XR 01', 'Negro', 'xr, xr01, xr 01, air fly, airfly'], ['High Boots 02', 'Marrón', 'high boots, highboots, bota, botas']].forEach(([n, c, a]) => state.productos.push({ id: uid(), nombre: n, marca: 'Ringo Work', color: c, tipo: 'Calzado de seguridad', alias: a, costo: 0, precio: 0, stockMin: 2, talles: {}, creado: todayStr() }));
     commit(); go('stock'); toast('Listo. Ahora poné los precios y el stock de cada modelo.');
   },
-  cfgGuardar: () => { const c = state.config; c.negocio = $('#cfNeg').value.trim(); c.telefono = $('#cfTel').value.trim(); c.talles = $('#cfTal').value.trim() || '35-45'; c.diasMuestra = Math.max(1, Math.round(numIn($('#cfDm').value)) || 7); commit(); toast('Ajustes guardados'); },
+  cfgGuardar: () => { const c = state.config; const nom = $('#cfNom').value.trim(); c.nombres = Object.assign({}, c.nombres); if (nom) c.nombres[claveNombre()] = nom; else delete c.nombres[claveNombre()]; c.negocio = $('#cfNeg').value.trim(); c.telefono = $('#cfTel').value.trim(); c.talles = $('#cfTal').value.trim() || '35-45'; c.diasMuestra = Math.max(1, Math.round(numIn($('#cfDm').value)) || 7); commit(); toast('Ajustes guardados'); },
   cfgCloud: () => { try { const c = parseFirebaseConfig($('#cfFb').value); localStorage.setItem('firebaseConfig', JSON.stringify(c)); location.reload(); } catch (e) { toast(e.message); } },
   cfgCloudDel: () => confirmBox('Este dispositivo deja de sincronizar. Los datos de la nube no se borran.', async () => { try { await window.Cloud.logout(); } catch {} localStorage.removeItem('firebaseConfig'); location.reload(); }, 'Desconectar'),
   backupBajar: () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(state)], { type: 'application/json' })); a.download = `deposito-mendoza-${todayStr()}.json`; a.click(); state.config.ultimoRespaldo = todayStr(); save(); },
