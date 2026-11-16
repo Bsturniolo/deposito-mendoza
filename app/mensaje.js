@@ -10,24 +10,25 @@ const DIAS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 's
 const titulo = (s) => s.replace(/\S+/g, (w) => w.length > 2 && !/^(del|las|los)$/.test(w) ? w[0].toUpperCase() + w.slice(1) : w);
 const blank = (s, a, b) => s.slice(0, a) + ' '.repeat(b - a) + s.slice(b);
 
-function claves(p) { // nombres con los que se puede nombrar un modelo
+function claves(p) { // nombres con los que se puede nombrar un artículo
   const n = norm(p.nombre).trim(), out = new Set([n]);
   out.add(n.replace(/\s+0?\d+$/, '')); // "bolt 02" -> "bolt"
   out.add(n.replace(/\s+/g, ''));
   String(p.alias || '').split(',').map((a) => norm(a).trim()).filter(Boolean).forEach((a) => out.add(a));
+  const c = norm(p.codigo).trim(); if (c) ['art ', 'art. ', 'articulo ', 'cod ', 'codigo ', 'nro ', '#'].forEach((pre) => out.add(pre + c));
   return [...out].filter((k) => k.length >= 2);
 }
 function buscarModelos(t) { // -> [{p, s, e}] sin superponerse
   const cands = [];
   state.productos.filter((p) => !p.archivado).forEach((p) => claves(p).forEach((k) => {
-    const re = new RegExp('(^|[^a-z0-9ñ])(' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*') + ')(?![a-zñ])', 'g'); let m;
+    const re = new RegExp('(^|[^a-z0-9ñ])(' + k.split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + (/[a-zñ]$/.test(w) && w.length > 2 ? '(?:e?s)?' : '')).join('\\s*') + ')(?![a-zñ])', 'g'); let m;
     while ((m = re.exec(t))) { const s = m.index + m[1].length; cands.push({ p, s, e: s + m[2].length }); }
   }));
   cands.sort((a, b) => (b.e - b.s) - (a.e - a.s));
   const out = [];
   for (const c of cands) if (!out.some((o) => c.s < o.e && o.s < c.e)) out.push(c);
   out.sort((a, b) => a.s - b.s);
-  // si después del modelo viene "01" / "02" (parte del nombre), se lo come
+  // si después del artículo viene "01" / "02" (parte del nombre), se lo come
   out.forEach((o) => { const m = t.slice(o.e).match(/^\s*0\d\b/); if (m) o.e += m[0].length; });
   return out;
 }
@@ -51,7 +52,8 @@ function interpretar(original) {
   else if (!pregunta && has(/\b(preste|prestamos|deje prestad)/)) { r.tipo = 'evento'; r.prestamo = true; }
   else if (has(/muestra/) && has(/\b(busque|buscamos|retire|retiramos|devolv|volvio|volvieron|trajeron|trajo|recupere|me la dieron|levante)/)) r.tipo = 'muestraVuelta';
   else if (/^\s*(cuant[oa]s?|quien(es)?|a quien(es)?|que (hay|tengo|me|facturas?|debo|le debo|preste))\b/.test(t) || pregunta && !has(/\b(vendi|vendimos|entraron|llegaron|deje|gaste|pague)\b/)) r.tipo = 'consulta';
-  else if (has(/\b(nuevo modelo|modelo nuevo|(agrega|agregame|agregar|crea|creame|crear|carga|cargame|cargar|suma|sumar) (el |un )?modelo)\b/)) r.tipo = 'modelo';
+  else if (has(/\b(nuevo (modelo|articulo|producto)|(modelo|articulo|producto) nuevo|(agrega|agregame|agregar|crea|creame|crear|carga|cargame|cargar|suma|sumar) (el |un )?(modelo|articulo|producto))\b/)) r.tipo = 'modelo';
+  else if (!pregunta && has(/\bpresupuest|\bcotiza/)) r.tipo = 'presupuesto';
   else if (hayMod() && has(/\b(precio|costo|cuesta|cuestan|me sale|me salen|lo vendo a|los vendo a|se vende a|se venden a|vale|valen)\b/) && !has(/\b(vendi|vendimos|entraron|llegaron|deje|compre)\b/)) r.tipo = 'precio';
   else if (hayMod() && has(/\b(conte|contamos|corregi|corregir|ajusta|ajustar|ajuste|en realidad (hay|quedan|tengo))\b/)) r.tipo = 'ajuste';
   else if (!has(/muestra/) && has(/\b(me devolvio|me devolvieron|devolvio|devolvieron|me trajo|me trajeron|ya me (lo|los|la|las) (dio|dieron|trajo))\b/) && prestados().length) r.tipo = 'prestamoVuelta';
@@ -93,7 +95,8 @@ function interpretar(original) {
   // ----- plata -----
   const leerMonto = (num, suf) => { let v = numIn(num); if (/mil|k|luca/.test(suf || '')) v *= 1000; return v; };
   const reMonto = [/\$\s*(\d[\d.,]*)\s*(mil|k|lucas?)?/, /\b(\d[\d.,]*)\s*(mil|k|lucas?|pesos)\b/, /\b(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d{4,})\b/];
-  for (const re of reMonto) { if ((m = t.match(re))) { r.monto = leerMonto(m[1], m[2]); const after = t.slice(m.index + m[0].length, m.index + m[0].length + 14); if (/^\s*(c\/u|cada uno|cada par|el par|por par|x par)/.test(after) || /(c\/u|cada uno|el par|por par)\s*$/.test(t.slice(Math.max(0, m.index - 14), m.index))) r.montoUnit = true; t = blank(t, m.index, m.index + m[0].length); break; } }
+  let tM = t; buscarModelos(t).forEach((mo) => { tM = blank(tM, mo.s, mo.e); }); // el número de artículo no es plata
+  for (const re of reMonto) { if ((m = tM.match(re))) { r.monto = leerMonto(m[1], m[2]); const after = t.slice(m.index + m[0].length, m.index + m[0].length + 14); if (/^\s*(c\/u|cada uno|cada par|el par|por par|x par)/.test(after) || /(c\/u|cada uno|el par|por par)\s*$/.test(t.slice(Math.max(0, m.index - 14), m.index))) r.montoUnit = true; t = blank(t, m.index, m.index + m[0].length); break; } }
 
   // ----- forma de pago -----
   if (has(/a cuenta|fiado|cuenta corriente|me debe|queda debiendo|despues (me )?paga|lo paga despues|sin pagar/)) r.pago = 'Cuenta corriente';
@@ -101,23 +104,29 @@ function interpretar(original) {
   else if (has(/tarjeta|debito|credito/)) r.pago = 'Tarjeta';
   else if (has(/efectivo|contado|cash/)) r.pago = 'Efectivo';
 
-  // ----- modelos, talles y cantidades -----
+  // ----- artículos, talles y cantidades -----
   const ms = buscarModelos(t);
+  const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   ms.forEach((mo, i) => {
     const antes = t.slice(i ? ms[i - 1].e : 0, mo.s), despues = t.slice(mo.e, i < ms.length - 1 ? ms[i + 1].s : t.length);
+    const T = tallesDe(mo.p), unico = sinTalle(mo.p);
+    const alt = T.map((x) => escRe(norm(x))).sort((x, y) => y.length - x.length).join('|');
+    const canon = (x) => T.find((y) => norm(y) === x) || x;
     const pares = []; let mm;
-    const reP = /(\d+)\s*(?:pares?\s*)?(?:del|de|en|talle|t\.?|nro|n°|numero|#)\s*(\d{2})\b/g;
-    while ((mm = reP.exec(despues))) if (esTalle(mm[2])) pares.push({ talle: mm[2], cant: +mm[1] });
-    const reX = /\b(\d{2})\s*x\s*(\d+)\b/g;
-    while ((mm = reX.exec(despues))) if (esTalle(mm[1])) pares.push({ talle: mm[1], cant: +mm[2] });
+    if (!unico) {
+      const reP = new RegExp('(\\d+)\\s*(?:pares?\\s*|unidades?\\s*)?(?:del|de|en|talle|t\\.?|nro|n°|numero|#)\\s*(' + alt + ')(?![a-z0-9ñ])', 'g');
+      while ((mm = reP.exec(despues))) pares.push({ talle: canon(mm[2]), cant: +mm[1] });
+      const reX = new RegExp('(?<![a-z0-9ñ])(' + alt + ')\\s*x\\s*(\\d+)\\b', 'g');
+      while ((mm = reX.exec(despues))) pares.push({ talle: canon(mm[1]), cant: +mm[2] });
+    }
     if (!pares.length) {
-      const ts = (despues.match(/\b\d{2}\b/g) || []).filter(esTalle);
+      const ts = unico ? [TU] : (despues.match(new RegExp('(?<![a-z0-9ñ])(' + alt + ')(?![a-z0-9ñ])', 'g')) || []).map(canon).filter((x, k, arr) => arr.indexOf(x) === k);
       let cant = 0;
       if ((mm = despues.match(/\bx\s*(\d+)\b/))) cant = +mm[1];
-      if (!cant && (mm = (antes + ' ' + despues).match(/\b(\d+)\s*pares?\b/))) cant = +mm[1];
-      if (!cant) { const ns = (antes.match(/\b\d+\b/g) || []).map(Number).filter((n) => n > 0 && n < 1000 && !esTalle(n)); if (ns.length) cant = ns[ns.length - 1]; }
+      if (!cant && (mm = (antes + ' ' + despues).match(/\b(\d+)\s*(?:pares?|unidades?)\b/))) cant = +mm[1];
+      if (!cant) { const ns = (antes.match(/\b\d+\b/g) || []).map(Number).filter((n) => n > 0 && n < 10000 && !(esTalle(n) && i > 0)); if (ns.length) cant = ns[ns.length - 1]; }
       cant = cant || 1;
-      if (ts.length) ts.forEach((tl) => pares.push({ talle: tl, cant })); else pares.push({ talle: '', cant });
+      if (ts.length) ts.forEach((x) => pares.push({ talle: x, cant })); else pares.push({ talle: '', cant });
     }
     pares.forEach((x) => r.items.push({ productoId: mo.p.id, nombre: mo.p.nombre, talle: x.talle, cant: x.cant }));
     t = blank(t, mo.s, mo.e);
@@ -150,10 +159,11 @@ function revisar(r) {
   const f = [];
   const conItems = ['venta', 'compra', 'entrada', 'salida', 'muestra', 'ajuste'].includes(r.tipo);
   if (r.tipo === 'precio') { const pr = leerPrecios(r.texto); if (!pr.costo && !pr.precio) f.push('el costo o el precio'); }
-  if (r.tipo === 'modelo' && !nombreModelo(r.texto)) f.push('el nombre del modelo');
+  if (r.tipo === 'modelo' && !nombreModelo(r.texto)) f.push('el nombre del artículo');
   if (r.tipo === 'factura' && !r.monto) f.push('el total');
+  if (r.tipo === 'presupuesto' && !r.items.length) f.push('saber qué artículos van');
   if (conItems) {
-    if (!r.items.length) f.push('el modelo');
+    if (!r.items.length) f.push('el artículo');
     if (r.items.some((i) => !i.talle)) f.push('el talle');
   }
   if (r.tipo === 'venta' && r.items.length && !r.monto && r.items.some((i) => !(prod(i.productoId) || {}).precio)) f.push('el precio');
@@ -162,8 +172,8 @@ function revisar(r) {
   if (['gasto', 'inversion', 'ingreso'].includes(r.tipo) && !r.monto) f.push('el monto');
   r.falta = f; return r;
 }
-const detalle = (items) => items.map((i) => `${i.cant} × ${prodNombre(i.productoId, i.nombre)}${i.talle ? ' talle ' + i.talle : ''}`).join(', ');
-function precioItems(r) { // reparte el monto entre los pares, o usa el precio del modelo
+const detalle = (items) => items.map((i) => `${i.cant} × ${prodNombre(i.productoId, i.nombre)}${tl(i.talle) ? ' talle ' + i.talle : ''}`).join(', ');
+function precioItems(r) { // reparte el monto entre los pares, o usa el precio del artículo
   const tot = pares(r.items);
   return r.items.map((i) => { const p = prod(i.productoId) || {}; let precio = Number(p.precio) || 0; if (r.monto) precio = r.montoUnit ? r.monto : Math.round(r.monto / tot); return Object.assign({}, i, { precio }); });
 }
@@ -185,7 +195,7 @@ function leerPrecios(texto) { // "costo 30000 y lo vendo a 55 mil" -> { costo, p
   return out;
 }
 function nombreModelo(texto) {
-  const t = norm(texto); const m = t.match(/\b(nuevo modelo|modelo nuevo|modelo)\b\s*:?\s*/); if (!m) return '';
+  const t = norm(texto); const m = t.match(/\b(nuevo (?:modelo|articulo|producto)|(?:modelo|articulo|producto) nuevo|modelo|articulo|producto)\b\s*:?\s*/); if (!m) return '';
   let rest = texto.slice(m.index + m[0].length); const nr = norm(rest);
   const ll = nr.match(/^(que se llama|llamado|se llama|nuevo|de nombre)\s+/); if (ll) rest = rest.slice(ll[0].length);
   const c = norm(rest).search(/\s*(,|;|\bcosto\b|\bprecio\b|\bcuesta\b|\bme (sale|cuesta)\b|\blo vendo\b|\bvale\b|\bsale\b|\by\b|\$|\b\d{3,}\b)/);
@@ -203,21 +213,28 @@ function ejecutar(r) { // devuelve {txt, deshacer}
   if (r.tipo === 'precio') {
     const pr = leerPrecios(r.texto), ids = [...new Set(r.items.map((i) => i.productoId))], prev = [];
     ids.forEach((pid) => { const p = prod(pid); prev.push({ id: pid, costo: p.costo || 0, precio: p.precio || 0 }); if (pr.costo) p.costo = pr.costo; if (pr.precio) p.precio = pr.precio; });
-    return { txt: '✅ Precios guardados.\n' + ids.map((pid) => { const p = prod(pid); return `${p.nombre}: costo ${p.costo ? fmtMoney(p.costo) : 'sin cargar'} · precio de venta ${p.precio ? fmtMoney(p.precio) : 'sin cargar'}${p.costo && p.precio ? ` · ganás ${fmtMoney(p.precio - p.costo)} por par` : ''}`; }).join('\n'), deshacer: { k: 'precio', prev } };
+    return { txt: '✅ Precios guardados.\n' + ids.map((pid) => { const p = prod(pid); return `${p.nombre}: costo ${p.costo ? fmtMoney(p.costo) : 'sin cargar'} · precio de venta ${p.precio ? fmtMoney(p.precio) : 'sin cargar'}${p.costo && p.precio ? ` · ganás ${fmtMoney(p.precio - p.costo)} por unidad` : ''}`; }).join('\n'), deshacer: { k: 'precio', prev } };
+  }
+  if (r.tipo === 'presupuesto') {
+    const items = precioItems(r).map((i) => { const p = prod(i.productoId) || {}; return { productoId: i.productoId, codigo: p.codigo || '', nombre: (p.nombre || i.nombre) + (tl(i.talle) ? ' talle ' + i.talle : ''), descripcion: p.descripcion || '', cant: i.cant, precio: i.precio }; });
+    const rec = { id, nro: presuSig(), estado: 'pendiente', creado: todayStr(), origen: 'chat', cliente: r.cliente, fecha: todayStr(), validez: 15, nota: state.config.presuNota || '', items };
+    state.presupuestos.push(rec);
+    return { txt: `📝 Presupuesto N° ${presuNro(rec.nro)}${rec.cliente ? ' para ' + rec.cliente : ''}:\n${items.map((i) => `• ${i.cant} × ${i.nombre}: ${fmtMoney(i.precio)} c/u`).join('\n')}\nTotal: ${fmtMoney(presuTotal(rec))}\nTocá "Ver la hoja" para imprimirlo o mandarlo.`, deshacer: { k: 'presupuesto', id }, presuId: id };
   }
   if (r.tipo === 'modelo') {
     const nombre = nombreModelo(r.texto), pr = leerPrecios(r.texto);
     const ya = state.productos.find((p) => !p.archivado && norm(p.nombre).trim() === norm(nombre).trim());
-    if (ya) return { txt: `El modelo ${ya.nombre} ya está cargado. Si querés cambiarle el precio escribí: "precio del ${ya.nombre} 50000".` };
-    state.productos.push({ id, nombre, marca: 'Ringo Work', color: '', tipo: 'Calzado de seguridad', costo: pr.costo, precio: pr.precio, stockMin: 2, alias: '', talles: {}, creado: todayStr() });
-    return { txt: `✅ Modelo nuevo: ${nombre}${pr.costo ? ' · costo ' + fmtMoney(pr.costo) : ''}${pr.precio ? ' · precio ' + fmtMoney(pr.precio) : ''}.\n${pr.costo && pr.precio ? '' : 'Cuando sepas el costo y el precio escribime: "' + nombre + ' costo 30000 precio 50000".\n'}Para cargarle stock: "entraron 10 ${nombre} 42".`, deshacer: { k: 'modelo', id } };
+    if (ya) return { txt: `El artículo ${ya.nombre} ya está cargado. Si querés cambiarle el precio escribí: "precio del ${ya.nombre} 50000".` };
+    const nn = norm(nombre), categoria = (Object.keys(CATEG).find((c) => c !== 'Calzado' && c !== 'Otro' && new RegExp('\\b' + norm(c).replace(/s$/, '')).test(nn))) || 'Calzado';
+    state.productos.push({ id, codigo: '', nombre, categoria, tallesDef: categoria === 'Calzado' ? (state.config.talles || '35-45') : CATEG[categoria], descripcion: '', marca: '', color: '', costo: pr.costo, precio: pr.precio, stockMin: 2, alias: '', talles: {}, creado: todayStr() });
+    return { txt: `✅ Artículo nuevo: ${nombre}${pr.costo ? ' · costo ' + fmtMoney(pr.costo) : ''}${pr.precio ? ' · precio ' + fmtMoney(pr.precio) : ''}.\n${pr.costo && pr.precio ? '' : 'Cuando sepas el costo y el precio escribime: "' + nombre + ' costo 10000 precio 18000".\n'}Para cargarle stock: "entraron 10 ${nombre}${categoria === 'Calzado' ? ' 42' : CATEG[categoria] === TU ? '' : ' ' + parseTalles(CATEG[categoria])[1]}".`, deshacer: { k: 'modelo', id } };
   }
   if (r.tipo === 'ajuste') {
     const cero = /\b(cero|ninguno|no hay|no quedan?|no queda nada)\b/.test(norm(r.texto));
     const movs = [];
     r.items.forEach((i) => { if (cero) i.cant = 0; const dif = i.cant - stockT(prod(i.productoId), i.talle); if (dif) movs.push({ productoId: i.productoId, nombre: i.nombre, talle: i.talle, cant: dif }); });
     if (movs.length) moverStock(movs, 1, 'Conteo por mensaje', id, todayStr());
-    return { txt: `✅ Stock corregido: ${r.items.map((i) => `${prodNombre(i.productoId, i.nombre)} talle ${i.talle} → ${i.cant} pares`).join(', ')}.`, deshacer: { k: 'stock', items: movs, signo: 1 } };
+    return { txt: `✅ Stock corregido: ${r.items.map((i) => `${prodNombre(i.productoId, i.nombre)}${tl(i.talle) ? ' talle ' + i.talle : ''} → ${i.cant} unidades`).join(', ')}.`, deshacer: { k: 'stock', items: movs, signo: 1 } };
   }
   if (r.tipo === 'prestamoVuelta' || r.tipo === 'eventoHecho') {
     const e = state.eventos.find((x) => x.id === r.eventoId); e.hecho = true;
@@ -249,8 +266,8 @@ function ejecutar(r) { // devuelve {txt, deshacer}
     const s = r.tipo === 'entrada' ? 1 : -1;
     moverStock(r.items, s, (s > 0 ? 'Entrada' : 'Salida') + ' por mensaje: ' + r.texto.slice(0, 60), id, r.fecha);
     const inv = s > 0 ? inversionEntrada(r.items, r.fecha, id) : '';
-    const invTxt = inv ? ` Lo anoté como inversión: ${fmtMoney(state.movimientos.find((x) => x.id === inv).monto)}.` : (s > 0 ? ' (Si le cargás el costo al modelo, también lo cuento como inversión.)' : '');
-    return { txt: `✅ ${s > 0 ? 'Entraron' : 'Salieron'} ${detalle(r.items)}. ${r.items.map((i) => `Ahora hay ${stockT(prod(i.productoId), i.talle)} del ${i.talle}`).filter((x, k, a) => a.indexOf(x) === k).join(', ')}.${invTxt}`, deshacer: { k: 'stock', items: r.items, signo: s, inv } };
+    const invTxt = inv ? ` Lo anoté como inversión: ${fmtMoney(state.movimientos.find((x) => x.id === inv).monto)}.` : (s > 0 ? ' (Si le cargás el costo al artículo, también lo cuento como inversión.)' : '');
+    return { txt: `✅ ${s > 0 ? 'Entraron' : 'Salieron'} ${detalle(r.items)}. ${r.items.map((i) => `Ahora hay ${stockT(prod(i.productoId), i.talle)}${tl(i.talle) ? ' del ' + i.talle : ' de ' + prodNombre(i.productoId, i.nombre)}`).filter((x, k, a) => a.indexOf(x) === k).join(', ')}.${invTxt}`, deshacer: { k: 'stock', items: r.items, signo: s, inv } };
   }
   if (r.tipo === 'muestra') {
     const mu = { id, fecha: r.fecha, cliente: r.cliente, telefono: '', items: r.items.map((i) => ({ productoId: i.productoId, nombre: i.nombre, talle: i.talle, cant: i.cant })), nota: '', estado: 'afuera', origen: 'chat' };
@@ -291,6 +308,7 @@ function deshacer(d) {
   else if (d.k === 'mov') state.movimientos = state.movimientos.filter((x) => x.id !== d.id);
   else if (d.k === 'evento') state.eventos = state.eventos.filter((x) => x.id !== d.id);
   else if (d.k === 'precio') d.prev.forEach((x) => { const p = prod(x.id); if (p) { p.costo = x.costo; p.precio = x.precio; } });
+  else if (d.k === 'presupuesto') state.presupuestos = state.presupuestos.filter((x) => x.id !== d.id);
   else if (d.k === 'modelo') state.productos = state.productos.filter((x) => x.id !== d.id);
   else if (d.k === 'eventoHecho') { const e = state.eventos.find((x) => x.id === d.id); if (e) e.hecho = false; }
   else if (d.k === 'pagoFactura') { const c = state.compras.find((x) => x.id === d.id); if (c) { c.pagada = false; c.fechaPago = ''; state.eventos.filter((e) => e.ref === c.id).forEach((e) => { e.hecho = false; }); } }
@@ -300,7 +318,7 @@ function deshacer(d) {
 // ---------- Consultas ----------
 function responderConsulta(r) {
   const t = norm(r.texto), hoy = todayStr();
-  if (r.items.length && /precio|costo|cuesta|sale|vale|gano/.test(t)) return [...new Set(r.items.map((i) => i.productoId))].map(prod).map((p) => `${p.nombre}: costo ${p.costo ? fmtMoney(p.costo) : 'sin cargar'} · precio de venta ${p.precio ? fmtMoney(p.precio) : 'sin cargar'}${p.costo && p.precio ? ` · ganás ${fmtMoney(p.precio - p.costo)} por par` : ''}`).join('\n');
+  if (r.items.length && /precio|costo|cuesta|sale|vale|gano/.test(t)) return [...new Set(r.items.map((i) => i.productoId))].map(prod).map((p) => `${p.nombre}: costo ${p.costo ? fmtMoney(p.costo) : 'sin cargar'} · precio de venta ${p.precio ? fmtMoney(p.precio) : 'sin cargar'}${p.costo && p.precio ? ` · ganás ${fmtMoney(p.precio - p.costo)} por unidad` : ''}`).join('\n');
   if (/invert|inversion/.test(t)) { const rm = resumenMes(hoy.slice(0, 7)); return `En ${MESES[+hoy.slice(5, 7) - 1].toLowerCase()} llevás invertido ${fmtMoney(rm.inversion)}.\nMercadería que hay en el depósito, a costo: ${fmtMoney(valorStock())}.`; }
   if (/prest/.test(t)) { const p = state.eventos.filter((e) => e.tipo === 'prestamo' && !e.hecho); return p.length ? 'Tenés prestado:\n' + p.map((e) => `• ${e.quien || 'Sin nombre'}: ${e.titulo} (lo devuelve el ${fmtDate(e.fecha)})`).join('\n') : 'No tenés nada prestado.'; }
   if (/\b(debo|facturas?|a pagar|tengo que pagar)\b/.test(t) && !/me deben?/.test(t)) { const d = debo(); return d.length ? 'Facturas sin pagar:\n' + d.map((c) => `• ${c.proveedor || c.detalle || 'Factura'}${c.nro ? ' ' + c.nro : ''}: ${fmtMoney(c.total)}${c.vence ? ' (vence el ' + fmtDate(c.vence) + ')' : ''}`).join('\n') + `\nTotal: ${fmtMoney(d.reduce((s, c) => s + (+c.total || 0), 0))}` : 'No debés ninguna factura 👌'; }
@@ -308,8 +326,8 @@ function responderConsulta(r) {
     const ids = [...new Set(r.items.map((i) => i.productoId))];
     const ps = ids.length ? ids.map(prod) : state.productos.filter((p) => !p.archivado);
     const ts = r.items.map((i) => i.talle).filter(Boolean);
-    if (!ps.length) return 'Todavía no hay modelos cargados.';
-    return ps.map((p) => ts.length ? `${p.nombre}: ` + ts.map((tl) => `talle ${tl} → ${stockT(p, tl)} pares`).join(', ') : `${p.nombre} (${stockTotal(p)} pares): ` + (talles().filter((tl) => stockT(p, tl)).map((tl) => `${tl}(${stockT(p, tl)})`).join(' ') || 'sin stock')).join('\n');
+    if (!ps.length) return 'Todavía no hay artículos cargados.';
+    return ps.map((p) => ts.length ? `${p.nombre}: ` + ts.map((x) => `${tl(x) ? 'talle ' + x + ' → ' : ''}${stockT(p, x)} unidades`).join(', ') : `${p.nombre} (${stockTotal(p)} unidades)` + (sinTalle(p) ? '' : ': ' + (tallesDe(p).filter((x) => stockT(p, x)).map((x) => `${x}(${stockT(p, x)})`).join(' ') || 'sin stock'))).join('\n');
   }
   if (/deb|deuda/.test(t)) { const d = meDeben(); return d.length ? 'Te deben:\n' + d.map((v) => `• ${v.cliente || 'Sin nombre'}: ${fmtMoney(v.total)} (desde el ${fmtDate(v.fecha)})`).join('\n') + `\nTotal: ${fmtMoney(d.reduce((s, v) => s + (+v.total || 0), 0))}` : 'Nadie te debe plata 👌'; }
   if (/muestra/.test(t)) { const a = muestrasAfuera(); return a.length ? 'Muestras afuera:\n' + a.map((m) => `• ${m.cliente}: ${resumenItems(m.items)} (${hace(daysBetween(m.fecha, hoy))})`).join('\n') : 'No hay muestras afuera.'; }
@@ -319,7 +337,7 @@ function responderConsulta(r) {
     const vs = state.ventas.filter((v) => v.fecha >= desde && v.fecha <= hoy);
     const tot = vs.reduce((s, v) => s + (+v.total || 0), 0);
     const per = semana ? 'en los últimos 7 días' : mesQ ? 'en ' + MESES[+hoy.slice(5, 7) - 1].toLowerCase() : r.fecha === hoy ? 'hoy' : 'el ' + fmtDate(r.fecha);
-    let s = `Vendiste ${fmtMoney(tot)} ${per} (${vs.length} ventas, ${pares(vs.flatMap((v) => v.items))} pares).`;
+    let s = `Vendiste ${fmtMoney(tot)} ${per} (${vs.length} ventas, ${pares(vs.flatMap((v) => v.items))} unidades).`;
     if (mesQ) { const rm = resumenMes(hoy.slice(0, 7)); s += `\nGanancia del mes, ya descontados los gastos: ${fmtMoney(rm.neta)}.`; }
     return s;
   }
@@ -328,7 +346,7 @@ function responderConsulta(r) {
 }
 
 // ---------- Chat ----------
-const EJEMPLOS = '🛒 Ventas: "vendí 2 bolt 42 a Juan 85000" · "Juan me pagó"\n📥 Stock: "entraron 10 xr 40 y 5 xr 41" · "salieron 2 bolt 41 rotos" · "conté 6 bolt 42"\n🏷️ Modelos y precios: "bolt costo 30000 precio 55000" · "nuevo modelo Titan 03"\n📦 Muestras: "dejé muestra high boots 43 a Constructora Andes" · "busqué la muestra de Andes"\n🤝 Préstamos: "le presté una campera a Pedro hasta el viernes" · "Pedro me devolvió la campera"\n🧾 Facturas: "factura de Ringo 500000 vence el 30" · "pagué la factura de Ringo" · el 📎 guarda la foto\n💸 Plata: "gasté 20000 de nafta" · "invertí 100000 en estanterías"\n📅 Calendario: "el lunes a las 10 entregar a obra Pérez en rojo" · "listo la entrega de Pérez"\n❓ Preguntas: "¿cuánto hay de bolt?" · "¿cuánto vendí este mes?" · "¿qué debo?" · "¿quién me debe?" · "¿qué presté?"';
+const EJEMPLOS = '🛒 Ventas: "vendí 2 bolt 42 a Juan 85000" · "vendí 3 remeras M y 2 gorras a Pedro" · "Juan me pagó"\n📝 Presupuestos: "presupuesto para Constructora Andes: 10 bolt 42 y 20 remeras L"\n📥 Stock: "entraron 10 xr 40 y 5 xr 41" · "salieron 2 bolt 41 rotos" · "conté 6 bolt 42"\n🏷️ Artículos y precios: "bolt costo 30000 precio 55000" · "nuevo artículo Remera azul precio 15000"\n📦 Muestras: "dejé muestra high boots 43 a Constructora Andes" · "busqué la muestra de Andes"\n🤝 Préstamos: "le presté una campera a Pedro hasta el viernes" · "Pedro me devolvió la campera"\n🧾 Facturas: "factura de Ringo 500000 vence el 30" · "pagué la factura de Ringo" · el 📎 guarda la foto\n💸 Plata: "gasté 20000 de nafta" · "invertí 100000 en estanterías"\n📅 Calendario: "el lunes a las 10 entregar a obra Pérez en rojo" · "listo la entrega de Pérez"\n❓ Preguntas: "¿cuánto hay de bolt?" · "¿cuánto vendí este mes?" · "¿qué debo?" · "¿quién me debe?" · "¿qué presté?"';
 const AYUDA = 'No entendí bien 🤔. Podés escribirme cosas así:\n' + EJEMPLOS + '\nO elegí qué querés cargar:';
 const ELEGIR = { // cuando hay que elegir sobre cuál registro actuar
   cobro: { key: 'ventaId', lista: () => meDeben(), get: (id) => state.ventas.find((x) => x.id === id), nom: (x) => x.cliente, lbl: (x) => `${x.cliente || 'Sin nombre'} · ${fmtMoney(x.total)}`, q: '¿Cuál te pagaron?', nada: 'No hay ventas a cuenta pendientes de cobro.' },
@@ -359,14 +377,14 @@ function procesarUno(txt) {
     let cand = lista.filter((x) => norm(E.nom(x)).split(/[^a-z0-9ñ]+/).some((w) => w.length >= 3 && !SIN_PESO.test(w) && new RegExp('(^|[^a-z0-9ñ])' + w + '([^a-z0-9ñ]|$)').test(t)));
     if (r.tipo === 'muestraVuelta' && r.items.length) cand = (cand.length ? cand : lista).filter((x) => x.items.some((i) => r.items.some((j) => j.productoId === i.productoId)));
     if (r.tipo === 'pagoFactura' && cand.length > 1 && r.monto) { const ex = cand.filter((x) => Number(x.total) === r.monto); if (ex.length) cand = ex; }
-    if (cand.length === 1) { r[E.key] = cand[0].id; const res = ejecutar(r); chatPush({ de: 'app', texto: res.txt, deshacer: res.deshacer, original: txt }); return; }
+    if (cand.length === 1) { r[E.key] = cand[0].id; const res = ejecutar(r); chatPush({ de: 'app', texto: res.txt, deshacer: res.deshacer, presuId: res.presuId || '', original: txt }); return; }
     if (!lista.length) { chatPush({ de: 'app', texto: E.nada, original: txt }); return; }
     chatPush({ de: 'app', texto: E.q, elegir: { tipo: r.tipo, ids: (cand.length ? cand : lista).slice(0, 8).map((x) => x.id) }, original: txt });
     return;
   }
-  if (!r.falta.length) { const res = ejecutar(r); chatPush({ de: 'app', texto: res.txt, deshacer: res.deshacer, original: txt }); return; }
+  if (!r.falta.length) { const res = ejecutar(r); chatPush({ de: 'app', texto: res.txt, deshacer: res.deshacer, presuId: res.presuId || '', original: txt }); return; }
   // falta algo: se pregunta con un formulario ya completado
-  const que = { venta: 'una venta', compra: 'una factura de compra', entrada: 'mercadería que entró', salida: 'mercadería que salió', muestra: 'una muestra', gasto: 'un gasto', inversion: 'una inversión', ingreso: 'un ingreso', evento: r.prestamo ? 'un préstamo' : 'algo para el calendario', precio: 'el precio de un modelo', modelo: 'un modelo nuevo', ajuste: 'un conteo de stock', factura: 'una factura' }[r.tipo];
+  const que = { venta: 'una venta', compra: 'una factura de compra', entrada: 'mercadería que entró', salida: 'mercadería que salió', muestra: 'una muestra', gasto: 'un gasto', inversion: 'una inversión', ingreso: 'un ingreso', evento: r.prestamo ? 'un préstamo' : 'algo para el calendario', precio: 'el precio de un artículo', modelo: 'un artículo nuevo', ajuste: 'un conteo de stock', factura: 'una factura', presupuesto: 'un presupuesto' }[r.tipo];
   chatPush({ de: 'app', texto: `Entendí que es ${que}${r.items.length ? ': ' + detalle(r.items) : ''}${r.cliente ? ' · ' + r.cliente : ''}${r.monto ? ' · ' + fmtMoney(r.monto) : ''}.\n${r.tipo === 'compra' ? 'Revisá los costos y si la pagaste, y guardala.' : 'Me falta ' + r.falta.join(' y ') + '. Tocá Completar.'}`, pendiente: r, estado: 'pendiente', original: txt });
 }
 function abrirPendiente(msg) {
@@ -379,6 +397,7 @@ function abrirPendiente(msg) {
   else if (r.tipo === 'muestra') muestraForm(base, done);
   else if (['gasto', 'inversion', 'ingreso'].includes(r.tipo)) movForm(r.tipo, null, { concepto: conceptoDe(r.texto), categoria: r.tipo === 'gasto' ? categoriaGasto(r.texto) : undefined, monto: r.monto, fecha: r.fecha, origen: 'chat' }, done);
   else if (r.tipo === 'evento') eventoForm(null, Object.assign({ titulo: r.prestamo ? '' : r.texto, fecha: r.fecha, hora: r.hora, origen: 'chat' }, r.prestamo ? { tipo: 'prestamo', quien: r.cliente } : {}), done);
+  else if (r.tipo === 'presupuesto') presuForm(null, { cliente: r.cliente, origen: 'chat' }, done);
   else if (r.tipo === 'factura') compraForm(null, { clase: categoriaGasto(r.texto) !== 'Otro gasto' ? 'gasto' : 'otra', proveedor: r.cliente, total: r.monto || null, pagada: false, origen: 'chat' }, done);
   else if (r.tipo === 'precio' && r.items[0]) prodForm(r.items[0].productoId, null, done);
   else if (r.tipo === 'modelo') { const pr = leerPrecios(r.texto); prodForm(null, { nombre: nombreModelo(r.texto), costo: pr.costo, precio: pr.precio }, done); }
@@ -396,11 +415,11 @@ VISTAS.mensaje = () => {
 function burbuja(m) {
   if (m.de === 'yo') return `<div class="burbuja yo"><div class="txt">${esc(m.texto)}</div><div class="hora">${esc(m.hora)}${m.usuario && cloud.email && m.usuario !== cloud.email ? ' · ' + esc(m.usuario.split('@')[0]) : ''}</div></div>`;
   let extra = '';
-  if (m.deshacer && !m.deshecho) extra = `<div class="row"><button class="sm" data-act="chatDeshacer" data-id="${m.id}">↩️ Deshacer</button></div>`;
+  if (m.deshacer && !m.deshecho) extra = `<div class="row">${m.presuId ? `<button class="sm pri" data-act="presuVer" data-id="${m.presuId}">📝 Ver la hoja</button>` : ''}<button class="sm" data-act="chatDeshacer" data-id="${m.id}">↩️ Deshacer</button></div>`;
   if (m.deshecho) extra = '<div class="small muted">↩️ Deshecho</div>';
   if (m.estado === 'pendiente') extra = `<div class="row"><button class="sm pri" data-act="chatCompletar" data-id="${m.id}">✏️ Completar</button><button class="sm" data-act="chatDescartar" data-id="${m.id}">Descartar</button></div>`;
   if (m.estado === 'descartado') extra = '<div class="small muted">Descartado</div>';
-  if (m.botones === 'menu' && !m.usado) extra = `<div class="row">${[['venta', '🛒 Venta'], ['entrada', '📥 Entró'], ['salida', '📤 Salió'], ['muestra', '📦 Muestra'], ['gasto', '💸 Gasto'], ['factura', '🧾 Factura'], ['prestamo', '🤝 Presté'], ['evento', '📅 Recordatorio']].map(([k, l]) => `<button class="sm" data-act="chatMenu" data-id="${m.id}|${k}">${l}</button>`).join('')}</div>`;
+  if (m.botones === 'menu' && !m.usado) extra = `<div class="row">${[['venta', '🛒 Venta'], ['entrada', '📥 Entró'], ['salida', '📤 Salió'], ['muestra', '📦 Muestra'], ['gasto', '💸 Gasto'], ['factura', '🧾 Factura'], ['prestamo', '🤝 Presté'], ['presupuesto', '📝 Presupuesto'], ['evento', '📅 Recordatorio']].map(([k, l]) => `<button class="sm" data-act="chatMenu" data-id="${m.id}|${k}">${l}</button>`).join('')}</div>`;
   if (m.elegir && !m.usado) {
     const E = ELEGIR[m.elegir.tipo]; const lst = m.elegir.ids.map((id) => E.get(id)).filter(Boolean);
     extra = `<div class="list">${lst.map((x) => `<button class="sm" style="justify-content:flex-start;margin-top:4px" data-act="chatElegir" data-id="${m.id}|${x.id}">${esc(E.lbl(x))}</button>`).join('')}</div>`;

@@ -61,17 +61,37 @@ const MOTIVOS = {
 
 const EMPTY = () => ({
   version: 1,
-  config: { negocio: 'Depósito Mendoza S.A.S.', telefono: '261 5734936', talles: '35-45', diasMuestra: 7, avisoDias: 3, ultimoRespaldo: null },
-  productos: [], stockMovs: [], ventas: [], compras: [], muestras: [], movimientos: [], eventos: [], chat: [], archivos: [],
+  config: { negocio: 'Depósito Mendoza S.A.S.', telefono: '261 5734936', talles: '35-45', diasMuestra: 7, avisoDias: 3, ultimoRespaldo: null, cuit: '', direccion: '', email: '', iva: '', presuNota: '' },
+  productos: [], stockMovs: [], ventas: [], compras: [], muestras: [], movimientos: [], eventos: [], chat: [], archivos: [], presupuestos: [],
 });
-const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat', 'archivos'];
+const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat', 'archivos', 'presupuestos'];
 let state = EMPTY();
 
-function talles() {
-  const t = String(state.config.talles || '35-45').trim();
+// ---------- Talles: cada artículo tiene los suyos ----------
+const TU = 'Único';
+const ROPA = 'S,M,L,XL,XXL';
+const CATEG = { 'Calzado': '35-45', 'Camisa': ROPA, 'Remera': ROPA, 'Chomba': ROPA, 'Pantalón': '38,40,42,44,46,48,50,52,54', 'Campera': ROPA, 'Buzo': ROPA, 'Gorra': TU, 'Guantes': TU, 'Otro': TU };
+function parseTalles(str) {
+  const t = String(str || '').trim();
   const m = t.match(/^(\d+)\s*-\s*(\d+)$/);
-  if (m) { const out = []; for (let i = +m[1]; i <= +m[2]; i++) out.push(String(i)); return out; }
-  return t.split(/[,\s]+/).filter(Boolean);
+  if (m && +m[2] >= +m[1] && +m[2] - +m[1] < 80) { const out = []; for (let i = +m[1]; i <= +m[2]; i++) out.push(String(i)); return out; }
+  const out = t.split(/[,;\s]+/).filter(Boolean).map((x) => /^(unic[oa]|únic[oa]|u|unico)$/i.test(x) ? TU : /^(x{0,3}[sml]|xxxl)$/i.test(x) ? x.toUpperCase() : x);
+  return out.length ? [...new Set(out)] : [TU];
+}
+const catDe = (p) => (p && p.categoria) || 'Calzado';
+function tallesDe(p) {
+  if (!p) return [];
+  const base = parseTalles(p.tallesDef || (catDe(p) === 'Calzado' ? state.config.talles : CATEG[catDe(p)]) || TU);
+  Object.keys(p.talles || {}).forEach((t) => { if (!base.includes(t) && Number(p.talles[t])) base.push(t); });
+  return base;
+}
+const sinTalle = (p) => { const t = tallesDe(p); return t.length === 1 && t[0] === TU; };
+const tl = (t) => t && t !== TU ? t : '';
+const artLbl = (p) => (p.codigo ? p.codigo + ' · ' : '') + p.nombre + (p.color ? ' · ' + p.color : '');
+function talles() { // todos los talles que se usan en algún artículo
+  const out = parseTalles(state.config.talles || '35-45');
+  state.productos.forEach((p) => { if (!p.archivado) tallesDe(p).forEach((t) => { if (!out.includes(t)) out.push(t); }); });
+  return out;
 }
 
 const DB_NAME = 'deposito-mendoza', STORE = 'kv';
@@ -214,7 +234,7 @@ function moverStock(items, signo, motivo, ref, fecha) {
     state.stockMovs.push({ id: uid(), fecha: fecha || todayStr(), productoId: p.id, nombre: p.nombre, talle: it.talle, cant: signo * (Number(it.cant) || 0), motivo, ref: ref || '' });
   }
 }
-// Mercadería que entra sin factura: cuenta como inversión (pares × costo del modelo)
+// Mercadería que entra sin factura: cuenta como inversión (unidades × costo del artículo)
 function inversionEntrada(items, fecha, ref, concepto) {
   const monto = items.reduce((s, i) => s + (Number(i.cant) || 0) * (Number((prod(i.productoId) || {}).costo) || 0), 0);
   if (!monto) return '';
@@ -224,11 +244,11 @@ function inversionEntrada(items, fecha, ref, concepto) {
 }
 const pares = (items) => (items || []).reduce((s, i) => s + (Number(i.cant) || 0), 0);
 function resumenItems(items, max = 3) {
-  const g = {}; (items || []).forEach((i) => { const k = i.productoId || i.nombre; (g[k] = g[k] || { n: prodNombre(i.productoId, i.nombre), t: [] }).t.push((Number(i.cant) > 1 ? i.cant + '×' : '') + i.talle); });
+  const g = {}; (items || []).forEach((i) => { const k = i.productoId || i.nombre; (g[k] = g[k] || { n: prodNombre(i.productoId, i.nombre), t: [] }).t.push(tl(i.talle) ? (Number(i.cant) > 1 ? i.cant + '×' : '') + i.talle : String(i.cant)); });
   const arr = Object.values(g).map((x) => `${x.n} (${x.t.join(', ')})`);
   return arr.length > max ? arr.slice(0, max).join(' · ') + ` y ${arr.length - max} más` : arr.join(' · ');
 }
-const stockBajo = () => state.productos.filter((p) => !p.archivado).flatMap((p) => talles().filter((t) => stockT(p, t) <= minDe(p)).map((t) => ({ p, t, n: stockT(p, t) })));
+const stockBajo = () => state.productos.filter((p) => !p.archivado).flatMap((p) => tallesDe(p).filter((t) => stockT(p, t) <= minDe(p)).map((t) => ({ p, t, n: stockT(p, t) })));
 
 // ---------- Cálculos de plata ----------
 const enMes = (f, m) => (f || '').startsWith(m);
@@ -254,7 +274,7 @@ const muestrasAfuera = () => state.muestras.filter((m) => m.estado === 'afuera')
 
 // ---------- Navegación ----------
 let view = 'inicio';
-const ui = { stockQ: '', ventasMes: todayStr().slice(0, 7), ventasTab: 'todas', comprasTab: 'todas', muestrasTab: 'afuera', plataMes: todayStr().slice(0, 7), balMes: todayStr().slice(0, 7), calMes: todayStr().slice(0, 7), calSel: todayStr(), msg: '', msgRes: null };
+const ui = { stockQ: '', ventasMes: todayStr().slice(0, 7), ventasTab: 'todas', comprasTab: 'todas', muestrasTab: 'afuera', plataMes: todayStr().slice(0, 7), balMes: todayStr().slice(0, 7), calMes: todayStr().slice(0, 7), calSel: todayStr(), msg: '', msgRes: null, stockCat: 'todas', presuTab: 'todos' };
 $('#nav').addEventListener('click', (e) => { const a = e.target.closest('a[data-view]'); if (a) go(a.dataset.view); });
 const NAV_SEC = ['muestras', 'compras', 'calendario', 'plata', 'balance', 'ajustes', 'mas'];
 function go(v) {
@@ -313,17 +333,17 @@ function confirmBox(msg, onYes, yesLbl = 'Sí, seguir') {
     (box) => { $('#cfYes', box).onclick = () => { closeModal(); onYes(); }; });
 }
 
-// ---------- Editor de líneas: modelo + cantidades por talle ----------
-// lines: [{productoId, cant:{talle:n}, precio}]  opts: {precio:'Precio por par'|'Costo por par'|null, verStock:bool, sinStockAviso:bool}
+// ---------- Editor de líneas: artículo + cantidades por talle ----------
+// lines: [{productoId, cant:{talle:n}, precio}]  opts: {precio:'Precio por unidad'|'Costo por unidad'|null, verStock:bool, sinStockAviso:bool}
 function lineasHTML(lines, opts) {
   const ps = state.productos.filter((p) => !p.archivado).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   return lines.map((l, i) => {
     const p = prod(l.productoId);
     return `<div class="linea" data-i="${i}">
-      <div class="row"><select data-l="prod" style="flex:1 1 200px"><option value="">— Elegí el modelo —</option>${ps.map((x) => `<option value="${x.id}" ${x.id === l.productoId ? 'selected' : ''}>${esc(x.nombre)}${x.color ? ' · ' + esc(x.color) : ''}</option>`).join('')}</select>
+      <div class="row"><select data-l="prod" style="flex:1 1 200px"><option value="">— Elegí el artículo —</option>${ps.map((x) => `<option value="${x.id}" ${x.id === l.productoId ? 'selected' : ''}>${esc(artLbl(x))}</option>`).join('')}</select>
       ${opts.precio ? `<label class="f" style="flex:0 1 150px">${opts.precio}<input data-l="precio" inputmode="decimal" value="${l.precio ? esc(l.precio) : ''}" placeholder="$"></label>` : ''}
       ${lines.length > 1 ? `<button type="button" class="sm danger" data-l="del" title="Quitar">✕</button>` : ''}</div>
-      ${p ? `<div class="curva">${talles().map((t) => { const n = Number((l.cant || {})[t]) || 0, s = stockT(p, t); return `<label>${t}<input data-l="cant" data-t="${t}" inputmode="numeric" value="${n || ''}" class="${n ? 'has' : ''}" aria-label="Talle ${t}">${opts.verStock ? `<small class="${s <= 0 ? 'z' : ''}">hay ${s}</small>` : ''}</label>`; }).join('')}</div>` : '<div class="small muted">Elegí el modelo y después poné cuántos pares de cada talle.</div>'}
+      ${p ? `<div class="curva">${tallesDe(p).map((t) => { const n = Number((l.cant || {})[t]) || 0, s = stockT(p, t); return `<label>${t === TU ? 'Cantidad' : esc(t)}<input data-l="cant" data-t="${esc(t)}" inputmode="numeric" value="${n || ''}" class="${n ? 'has' : ''}" aria-label="Talle ${t}">${opts.verStock ? `<small class="${s <= 0 ? 'z' : ''}">hay ${s}</small>` : ''}</label>`; }).join('')}</div>` : '<div class="small muted">Elegí el artículo y después poné cuántas unidades de cada talle.</div>'}
     </div>`;
   }).join('');
 }
@@ -331,7 +351,7 @@ function lineasEditor(cont, lines, opts, onChange) {
   const draw = () => { cont.innerHTML = lineasHTML(lines, opts); onChange && onChange(); };
   cont.addEventListener('change', (e) => {
     const el = e.target, i = +el.closest('.linea').dataset.i, l = lines[i];
-    if (el.dataset.l === 'prod') { l.productoId = el.value; const p = prod(el.value); if (p && opts.precioDe) l.precio = opts.precioDe(p) || ''; draw(); }
+    if (el.dataset.l === 'prod') { l.productoId = el.value; const p = prod(el.value); if (p) { const ok = tallesDe(p); Object.keys(l.cant || {}).forEach((k) => { if (!ok.includes(k)) delete l.cant[k]; }); } if (p && opts.precioDe) l.precio = opts.precioDe(p) || ''; draw(); }
   });
   cont.addEventListener('input', (e) => {
     const el = e.target; const li = el.closest('.linea'); if (!li) return; const l = lines[+li.dataset.i];
