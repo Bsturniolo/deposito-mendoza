@@ -260,11 +260,13 @@ function ventaForm(pre = {}, onSaved) {
 }
 function ventaVer(id) {
   const v = state.ventas.find((x) => x.id === id); if (!v) return;
-  const txt = `Hola${v.cliente ? ' ' + v.cliente : ''}! Te paso el detalle de tu compra en Depósito Mendoza (${fmtDate(v.fecha)}):\n` + v.items.map((i) => `• ${i.cant} × ${prodNombre(i.productoId, i.nombre)} talle ${i.talle}${i.precio ? ' — ' + fmtMoney(i.precio) + ' c/u' : ''}`).join('\n') + `\nTotal: ${fmtMoney(v.total)}\n¡Gracias!`;
+  const txt = `Hola${v.cliente ? ' ' + v.cliente : ''}! Te paso el detalle de tu compra en Depósito Mendoza (${fmtDate(v.fecha)}):\n` + v.items.map((i) => `• ${i.cant} × ${prodNombre(i.productoId, i.nombre)}${tl(i.talle) ? ' talle ' + i.talle : ''}${i.precio ? ' — ' + fmtMoney(i.precio) + ' c/u' : ''}`).join('\n') + `\nTotal: ${fmtMoney(v.total)}\n¡Gracias!`;
   modal(`<h3>Venta · ${fmtDate(v.fecha)}</h3><p class="sub">${esc(v.cliente || 'Sin nombre')}${v.telefono ? ' · ' + esc(v.telefono) : ''} · ${esc(v.pago)}${v.pago === 'Cuenta corriente' ? (v.cobrado ? ' (cobrada el ' + fmtDate(v.fechaCobro) + ')' : ' (me debe)') : ''}${v.origen === 'chat' ? ' · cargada por mensaje' : ''}</p>
-    <div class="tablewrap"><table><thead><tr><th>Artículo</th><th>Talle</th><th class="n">Cant.</th><th class="n">Precio</th></tr></thead><tbody>${v.items.map((i) => `<tr><td>${esc(prodNombre(i.productoId, i.nombre))}</td><td>${esc(i.talle)}</td><td class="n">${i.cant}</td><td class="n">${fmtMoney(i.precio)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="tablewrap"><table><thead><tr><th>Artículo</th><th>Talle</th><th class="n">Cant.</th><th class="n">Precio</th></tr></thead><tbody>${v.items.map((i) => `<tr><td>${esc(prodNombre(i.productoId, i.nombre))}</td><td>${esc(tl(i.talle))}</td><td class="n">${i.cant}</td><td class="n">${fmtMoney(i.precio)}</td></tr>`).join('')}</tbody></table></div>
     <p class="b mt" style="font-size:20px">Total ${fmtMoney(v.total)}</p>${v.nota ? `<p>${esc(v.nota)}</p>` : ''}
+    <div class="row"><button class="pri" id="vvImp">🖨️ Imprimir comprobante</button></div>
     <div class="modal-actions"><button class="danger izq" id="vvAn">Anular venta</button>${!v.cobrado ? `<button class="pri" data-act="cobrar" data-id="${v.id}">💰 Me pagó</button>` : ''}<a class="btn wa" href="${waLink(v.telefono, txt)}" target="_blank" rel="noopener">💬 Mandar detalle</a><button data-act="close">Cerrar</button></div>`, (box) => {
+    $('#vvImp', box).onclick = () => imprimirHoja(ventaHoja(v), `Comprobante ${presuNro(ventaNro(v))}${v.cliente ? ' - ' + v.cliente : ''}`);
     $('#vvAn', box).onclick = () => confirmBox('Se borra la venta y las unidades vuelven al stock.', () => anularVenta(id), 'Anular venta');
   });
 }

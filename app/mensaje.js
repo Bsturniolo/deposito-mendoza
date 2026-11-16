@@ -216,10 +216,10 @@ function ejecutar(r) { // devuelve {txt, deshacer}
     return { txt: '✅ Precios guardados.\n' + ids.map((pid) => { const p = prod(pid); return `${p.nombre}: costo ${p.costo ? fmtMoney(p.costo) : 'sin cargar'} · precio de venta ${p.precio ? fmtMoney(p.precio) : 'sin cargar'}${p.costo && p.precio ? ` · ganás ${fmtMoney(p.precio - p.costo)} por unidad` : ''}`; }).join('\n'), deshacer: { k: 'precio', prev } };
   }
   if (r.tipo === 'presupuesto') {
-    const items = precioItems(r).map((i) => { const p = prod(i.productoId) || {}; return { productoId: i.productoId, codigo: p.codigo || '', nombre: (p.nombre || i.nombre) + (tl(i.talle) ? ' talle ' + i.talle : ''), descripcion: p.descripcion || '', cant: i.cant, precio: i.precio }; });
+    const items = precioItems(r).map((i) => { const p = prod(i.productoId) || {}; return { productoId: i.productoId, codigo: p.codigo || '', nombre: p.nombre || i.nombre, talle: i.talle || '', descripcion: p.descripcion || '', cant: i.cant, precio: i.precio }; });
     const rec = { id, nro: presuSig(), estado: 'pendiente', creado: todayStr(), origen: 'chat', cliente: r.cliente, fecha: todayStr(), validez: 15, nota: state.config.presuNota || '', items };
     state.presupuestos.push(rec);
-    return { txt: `📝 Presupuesto N° ${presuNro(rec.nro)}${rec.cliente ? ' para ' + rec.cliente : ''}:\n${items.map((i) => `• ${i.cant} × ${i.nombre}: ${fmtMoney(i.precio)} c/u`).join('\n')}\nTotal: ${fmtMoney(presuTotal(rec))}\nTocá "Ver la hoja" para imprimirlo o mandarlo.`, deshacer: { k: 'presupuesto', id }, presuId: id };
+    return { txt: `📝 Presupuesto N° ${presuNro(rec.nro)}${rec.cliente ? ' para ' + rec.cliente : ''}:\n${items.map((i) => `• ${i.cant} × ${itemNom(i)}: ${fmtMoney(i.precio)} c/u`).join('\n')}\nTotal: ${fmtMoney(presuTotal(rec))}\nTocá "Ver la hoja" para imprimirlo o mandarlo.`, deshacer: { k: 'presupuesto', id }, presuId: id };
   }
   if (r.tipo === 'modelo') {
     const nombre = nombreModelo(r.texto), pr = leerPrecios(r.texto);
