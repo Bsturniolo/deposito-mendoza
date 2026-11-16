@@ -71,10 +71,11 @@ function hojaDoc(d) {
     <div class="hoja-top"><div class="hoja-neg"><img src="logo-vertical.png" alt=""><div><b>${esc(c.negocio)}</b>${dato('CUIT', c.cuit)}${dato('', c.iva)}${dato('', c.direccion)}${dato('Tel.', c.telefono)}${dato('', c.email)}</div></div>
       <div class="hoja-nro"><div class="hoja-tit">${esc(d.titulo)}</div><div>N° <b>${presuNro(d.nro)}</b></div><div>Fecha: ${fmtDate(d.fecha)}</div>${(d.lineas || []).filter(Boolean).map((x) => `<div>${esc(x)}</div>`).join('')}</div></div>
     <div class="hoja-cli"><b>Cliente:</b> ${esc(d.cliente || '—')}${d.cuit ? ' · CUIT/DNI ' + esc(d.cuit) : ''}${d.direccion ? ' · ' + esc(d.direccion) : ''}${d.telefono ? ' · Tel. ' + esc(d.telefono) : ''}</div>
-    <table class="hoja-tabla"><thead><tr><th>N° art.</th><th>Artículo</th><th>Descripción</th><th class="n">Cant.</th><th class="n">Precio unit.</th><th class="n">Total</th></tr></thead><tbody>
-      ${(d.items || []).map((i) => `<tr><td>${esc(i.codigo)}</td><td>${esc(itemNom(i))}</td><td>${esc(i.descripcion)}</td><td class="n">${fmtNum(i.cant)}</td><td class="n">${fmtMoney(i.precio)}</td><td class="n">${fmtMoney(i.cant * i.precio)}</td></tr>`).join('')}
-    </tbody><tfoot><tr><td colspan="5" class="n">TOTAL</td><td class="n">${fmtMoney(d.total)}</td></tr></tfoot></table>
+    <table class="hoja-tabla"><thead><tr><th>N° art.</th><th>Artículo</th><th>Descripción</th><th class="n">Cant.</th>${d.sinPrecios ? '' : '<th class="n">Precio unit.</th><th class="n">Total</th>'}</tr></thead><tbody>
+      ${(d.items || []).map((i) => `<tr><td>${esc(i.codigo)}</td><td>${esc(itemNom(i))}</td><td>${esc(i.descripcion)}</td><td class="n">${fmtNum(i.cant)}</td>${d.sinPrecios ? '' : `<td class="n">${fmtMoney(i.precio)}</td><td class="n">${fmtMoney(i.cant * i.precio)}</td>`}</tr>`).join('')}
+    </tbody><tfoot>${d.sinPrecios ? `<tr><td colspan="3" class="n">TOTAL DE UNIDADES</td><td class="n">${fmtNum(pares(d.items))}</td></tr>` : `<tr><td colspan="5" class="n">TOTAL</td><td class="n">${fmtMoney(d.total)}</td></tr>`}</tfoot></table>
     ${d.nota ? `<div class="hoja-nota">${esc(d.nota)}</div>` : ''}
+    ${d.firma ? '<div class="hoja-firma"><div>Recibí conforme (firma)</div><div>Aclaración</div><div>DNI</div><div>Fecha</div></div>' : ''}
     <div class="hoja-pie">${esc(d.pie || '')}</div></div>`;
 }
 function presuHoja(p) {
@@ -91,12 +92,12 @@ function imprimirHoja(html, titulo) {
   const img = $('img', d); const ir = () => setTimeout(() => { window.print(); setTimeout(fin, 1500); }, 60);
   if (img && !img.complete) { img.onload = ir; img.onerror = ir; } else ir();
 }
-// Comprobante de una venta: mismo formato que el presupuesto, con su propio número
+// Remito de una venta: mismo formato que el presupuesto, con su propio número y lugar para la firma
 function ventaNro(v) { if (!v.nroComp) { v.nroComp = state.ventas.reduce((m, x) => Math.max(m, Number(x.nroComp) || 0), 0) + 1; save(); } return v.nroComp; }
-function ventaHoja(v) {
+function ventaHoja(v, conPrecios) {
   const items = v.items.map((i) => { const a = prod(i.productoId) || {}; return { codigo: a.codigo || '', nombre: prodNombre(i.productoId, i.nombre), talle: i.talle, descripcion: a.descripcion || '', cant: i.cant, precio: i.precio }; });
   const pres = v.presuId && state.presupuestos.find((x) => x.id === v.presuId);
-  return hojaDoc({ titulo: 'COMPROBANTE DE VENTA', nro: ventaNro(v), fecha: v.fecha, lineas: ['Forma de pago: ' + v.pago, v.cobrado ? 'Pagado' : 'A cuenta (pendiente de pago)', pres ? 'Presupuesto N° ' + presuNro(pres.nro) : ''], cliente: v.cliente, cuit: v.cuit, direccion: v.direccion, telefono: v.telefono, items, total: v.total, nota: '', pie: 'Documento no válido como factura.' });
+  return hojaDoc({ titulo: 'REMITO', nro: ventaNro(v), fecha: v.fecha, sinPrecios: !conPrecios, firma: true, lineas: [conPrecios ? 'Forma de pago: ' + v.pago : '', pres ? 'Presupuesto N° ' + presuNro(pres.nro) : ''], cliente: v.cliente, cuit: v.cuit, direccion: v.direccion, telefono: v.telefono, items, total: v.total, nota: '', pie: 'Documento no válido como factura.' });
 }
 function presuTexto(p) {
   return `*Presupuesto N° ${presuNro(p.nro)}* — ${state.config.negocio}\n${fmtDate(p.fecha)}${p.cliente ? ' · ' + p.cliente : ''}\n\n` + (p.items || []).map((i) => `• ${i.cant} × ${itemNom(i)}${i.codigo ? ' (art. ' + i.codigo + ')' : ''}: ${fmtMoney(i.precio)} c/u = ${fmtMoney(i.cant * i.precio)}`).join('\n') + `\n\n*Total: ${fmtMoney(presuTotal(p))}*` + (presuVence(p) ? `\nVálido hasta el ${fmtDate(presuVence(p))}` : '') + (p.nota ? '\n' + p.nota : '');
@@ -105,7 +106,7 @@ function presuImprimir(id) {
   const p = state.presupuestos.find((x) => x.id === id); if (!p) return;
   imprimirHoja(presuHoja(p), `Presupuesto ${presuNro(p.nro)}${p.cliente ? ' - ' + p.cliente : ''}`);
 }
-// El cliente aceptó: del presupuesto sale la venta (descuenta stock) y su comprobante
+// El cliente aceptó: del presupuesto sale la venta (descuenta stock) y su remito
 function presuAVenta(id) {
   const p = state.presupuestos.find((x) => x.id === id); if (!p) return;
   const items = (p.items || []).filter((i) => prod(i.productoId)).map((i) => ({ productoId: i.productoId, nombre: prod(i.productoId).nombre, talle: sinTalle(prod(i.productoId)) ? TU : (i.talle || ''), cant: i.cant, precio: i.precio }));
@@ -121,7 +122,7 @@ function presuVer(id) {
   modal(`<div class="spread"><h3>Presupuesto N° ${presuNro(p.nro)}</h3><span class="pill ${ESTADOS_P[e][1]}">${ESTADOS_P[e][0]}</span></div>
     <div class="hoja-vista">${presuHoja(p)}</div>
     <div class="row mt"><button class="pri" id="pvImp">🖨️ Imprimir o guardar PDF</button><a class="btn wa" href="${waLink(p.telefono || '', presuTexto(p))}" target="_blank" rel="noopener">💬 Mandar por WhatsApp</a><button id="pvEd">✏️ Editar</button></div>
-    <div class="row mt">${e !== 'aceptado' ? '<button class="acc" id="pvVenta">✅ Lo aceptó: hacer la venta y el comprobante</button>' : (p.ventaId && state.ventas.some((x) => x.id === p.ventaId) ? '<button id="pvVerV">🧾 Ver la venta y su comprobante</button>' : '')}${e === 'pendiente' ? '<button id="pvNo">No se hizo</button>' : '<button id="pvPen">Volver a "esperando"</button>'}</div>
+    <div class="row mt">${e !== 'aceptado' ? '<button class="acc" id="pvVenta">✅ Lo aceptó: hacer la venta y el remito</button>' : (p.ventaId && state.ventas.some((x) => x.id === p.ventaId) ? '<button id="pvVerV">🧾 Ver la venta y su remito</button>' : '')}${e === 'pendiente' ? '<button id="pvNo">No se hizo</button>' : '<button id="pvPen">Volver a "esperando"</button>'}</div>
     <div class="modal-actions"><button class="danger izq" id="pvDel">Borrar</button><button data-act="close">Cerrar</button></div>`, (box) => {
     const on = (s, fn) => { const b = $(s, box); if (b) b.onclick = fn; };
     on('#pvImp', () => presuImprimir(id));
