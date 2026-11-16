@@ -27,13 +27,15 @@ function presuForm(id, pre = {}, onSaved) {
   const p = orig || Object.assign({ fecha: todayStr(), validez: 15, cliente: '', nota: state.config.presuNota || '' }, pre);
   const lines = (p.items && p.items.length ? p.items : [{}]).map((i) => ({ productoId: i.productoId || '', codigo: i.codigo || '', nombre: i.nombre || '', talle: i.talle || '', descripcion: i.descripcion || '', cant: i.cant || '', precio: i.precio || '' }));
   const arts = state.productos.filter((x) => !x.archivado).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-  const clientes = [...new Set(state.ventas.map((v) => v.cliente).concat(state.presupuestos.map((x) => x.cliente)).filter(Boolean))];
+  const clientes = [...new Set(state.clientes.map((c) => c.nombre).concat(state.ventas.map((v) => v.cliente), state.presupuestos.map((x) => x.cliente)).filter(Boolean))];
+  let lista = p.lista != null ? p.lista : ((clienteDe(p) || {}).lista || '');
   const fila = (l, i) => `<div class="linea pline" data-i="${i}">
       <div class="row"><select data-k="productoId" style="flex:1 1 220px"><option value="">— Elegí un artículo o escribilo a mano —</option>${artOptions(l.productoId)}</select>${prod(l.productoId) && !sinTalle(prod(l.productoId)) ? `<select data-k="talle" style="flex:0 1 130px" aria-label="Talle"><option value="">Talle…</option>${tallesDe(prod(l.productoId)).map((t) => `<option ${t === l.talle ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>` : ''}${lines.length > 1 ? '<button type="button" class="sm danger" data-k="del" title="Quitar">✕</button>' : ''}</div>
       <div class="pgrid"><label class="f">N° art.<input data-k="codigo" value="${esc(l.codigo)}"></label><label class="f">Artículo<input data-k="nombre" value="${esc(l.nombre)}"></label><label class="f pdesc">Descripción<input data-k="descripcion" value="${esc(l.descripcion)}"></label>
       <label class="f">Cantidad<input data-k="cant" inputmode="numeric" value="${esc(l.cant)}"></label><label class="f">Precio por unidad<input data-k="precio" inputmode="decimal" value="${esc(l.precio)}" placeholder="$"></label><div class="f">Total<b class="ptot">${fmtMoney(numIn(l.cant) * numIn(l.precio))}</b></div></div></div>`;
   modal(`<h3>${orig ? 'Editar presupuesto N° ' + presuNro(p.nro) : 'Nuevo presupuesto'}</h3>
     <div class="form"><label class="f">Cliente<input name="cliente" list="pfCli" value="${esc(p.cliente)}" placeholder="Nombre o empresa"><datalist id="pfCli">${clientes.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>
+    <label class="f">Lista de precios<select name="lista">${listaOptions(lista)}</select></label>
     <label class="f">CUIT / DNI (opcional)<input name="cuit" value="${esc(p.cuit)}"></label>
     <label class="f">Dirección (opcional)<input name="direccion" value="${esc(p.direccion)}"></label>
     <label class="f">Teléfono (opcional)<input name="telefono" value="${esc(p.telefono)}"></label>
@@ -47,15 +49,18 @@ function presuForm(id, pre = {}, onSaved) {
     const cont = $('#prL', box);
     const tot = () => { const t = lines.reduce((s, l) => s + numIn(l.cant) * numIn(l.precio), 0); $('#prTot', box).textContent = 'Total ' + fmtMoney(t); $('#prCant', box).textContent = lines.filter((l) => l.nombre).length + ' renglones'; };
     const draw = () => { cont.innerHTML = lines.map(fila).join(''); tot(); };
-    cont.addEventListener('change', (e) => { const el = e.target; if (el.dataset.k !== 'productoId') return; const l = lines[+el.closest('.pline').dataset.i]; l.productoId = el.value; l.talle = ''; const a = prod(el.value); if (a) { if (sinTalle(a)) l.talle = TU; l.codigo = a.codigo || ''; l.nombre = a.nombre + (a.color ? ' ' + a.color : ''); l.descripcion = a.descripcion || ''; l.precio = a.precio || ''; if (!l.cant) l.cant = 1; } draw(); });
+    cont.addEventListener('change', (e) => { const el = e.target; if (el.dataset.k !== 'productoId') return; const l = lines[+el.closest('.pline').dataset.i]; l.productoId = el.value; l.talle = ''; const a = prod(el.value); if (a) { if (sinTalle(a)) l.talle = TU; l.codigo = a.codigo || ''; l.nombre = a.nombre + (a.color ? ' ' + a.color : ''); l.descripcion = a.descripcion || ''; l.precio = precioLista(a, lista) || ''; if (!l.cant) l.cant = 1; } draw(); });
     cont.addEventListener('input', (e) => { const el = e.target, k = el.dataset.k; if (!k || k === 'productoId') return; const li = el.closest('.pline'), l = lines[+li.dataset.i]; l[k] = el.value; $('.ptot', li).textContent = fmtMoney(numIn(l.cant) * numIn(l.precio)); tot(); });
     cont.addEventListener('click', (e) => { const b = e.target.closest('[data-k=del]'); if (!b) return; lines.splice(+b.closest('.pline').dataset.i, 1); draw(); });
+    const reprecio = () => { lines.forEach((l) => { const a = prod(l.productoId); if (a) l.precio = precioLista(a, lista) || l.precio; }); draw(); };
+    $('[name=lista]', box).onchange = (e) => { lista = e.target.value; reprecio(); };
+    $('[name=cliente]', box).onchange = (e) => { const c = clienteDe({ cliente: e.target.value }); if (!c) return; [['cuit', c.cuit], ['direccion', c.direccion], ['telefono', c.telefono]].forEach(([k, v]) => { const i = $(`[name=${k}]`, box); if (v && !i.value) i.value = v; }); if ((c.lista || '') !== lista) { lista = c.lista || ''; $('[name=lista]', box).value = lista; reprecio(); } };
     $('#prAdd', box).onclick = () => { lines.push({ productoId: '', codigo: '', nombre: '', talle: '', descripcion: '', cant: '', precio: '' }); draw(); };
     $('#prOk', box).onclick = () => {
       const g = (n) => $(`[name=${n}]`, box).value.trim();
       const items = lines.filter((l) => String(l.nombre).trim()).map((l) => ({ productoId: l.productoId, codigo: String(l.codigo).trim(), nombre: String(l.nombre).trim(), talle: l.productoId ? (l.talle || '') : '', descripcion: String(l.descripcion).trim(), cant: Math.max(1, Math.round(numIn(l.cant)) || 1), precio: numIn(l.precio) }));
       if (!items.length) return ($('#prErr', box).textContent = 'Elegí al menos un artículo.');
-      const data = { cliente: g('cliente'), cuit: g('cuit'), direccion: g('direccion'), telefono: g('telefono'), fecha: g('fecha') || todayStr(), validez: Math.round(numIn(g('validez'))) || 0, nota: $('[name=nota]', box).value.trim(), items };
+      const data = { cliente: g('cliente'), cuit: g('cuit'), direccion: g('direccion'), telefono: g('telefono'), fecha: g('fecha') || todayStr(), validez: Math.round(numIn(g('validez'))) || 0, nota: $('[name=nota]', box).value.trim(), items, lista };
       let rec; if (orig) rec = Object.assign(orig, data); else { rec = Object.assign({ id: uid(), nro: presuSig(), estado: 'pendiente', creado: todayStr(), origen: pre.origen || 'app' }, data); state.presupuestos.push(rec); }
       closeModal(); commit(); toast('Presupuesto N° ' + presuNro(rec.nro) + ' guardado'); if (onSaved) onSaved(rec); else presuVer(rec.id);
     };
@@ -112,7 +117,7 @@ function presuAVenta(id) {
   const items = (p.items || []).filter((i) => prod(i.productoId)).map((i) => ({ productoId: i.productoId, nombre: prod(i.productoId).nombre, talle: sinTalle(prod(i.productoId)) ? TU : (i.talle || ''), cant: i.cant, precio: i.precio }));
   if (!items.length) return toast('Este presupuesto no tiene artículos de la lista para pasar a venta.');
   const aMano = (p.items || []).filter((i) => !prod(i.productoId)).length;
-  ventaForm({ cliente: p.cliente, telefono: p.telefono, items, nota: 'Presupuesto N° ' + presuNro(p.nro) + (aMano ? ` (${aMano} renglones escritos a mano no pasaron a la venta)` : '') }, (v) => {
+  ventaForm({ cliente: p.cliente, telefono: p.telefono, lista: p.lista, items, nota: 'Presupuesto N° ' + presuNro(p.nro) + (aMano ? ` (${aMano} renglones escritos a mano no pasaron a la venta)` : '') }, (v) => {
     v.cuit = p.cuit || ''; v.direccion = p.direccion || ''; v.presuId = p.id; p.estado = 'aceptado'; p.ventaId = v.id; commit(); ventaVer(v.id);
   });
 }

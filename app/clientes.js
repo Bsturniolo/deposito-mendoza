@@ -46,7 +46,7 @@ function clienteVer(key) {
   const rows = movsCuenta(key).reverse(), ult = ultimaCompra(key);
   const compras = ventasOk().filter((v) => cliKey(v) === key);
   const tel = (c && c.telefono) || (ult && ult.telefono) || '';
-  modal(`<h3>👤 ${esc(nombre)}</h3><p class="sub">${c ? esc([c.cuit ? 'CUIT ' + c.cuit : '', c.condIva, c.contacto ? 'Contacto: ' + c.contacto : '', c.telefono, c.email, c.direccion].filter(Boolean).join(' · ')) || 'Ficha sin datos todavía' : 'Todavía no tiene ficha: tocá <b>Crear ficha</b> para guardar CUIT, dirección y contacto.'}${c && c.nota ? '<br>' + esc(c.nota) : ''}</p>
+  modal(`<h3>👤 ${esc(nombre)}</h3><p class="sub">${c ? esc([c.cuit ? 'CUIT ' + c.cuit : '', c.condIva, c.lista ? 'Lista ' + listaNombre(c.lista) : '', c.contacto ? 'Contacto: ' + c.contacto : '', c.telefono, c.email, c.direccion].filter(Boolean).join(' · ')) || 'Ficha sin datos todavía' : 'Todavía no tiene ficha: tocá <b>Crear ficha</b> para guardar CUIT, dirección y contacto.'}${c && c.nota ? '<br>' + esc(c.nota) : ''}</p>
     <div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:12px">
       <div class="card kpi"><div class="lbl">Saldo</div><div class="val ${a && a.debe > 0 ? 'c-out' : 'c-in'}" style="font-size:22px">${a && a.debe > 0 ? fmtMoney(a.debe) : a && a.aFavor > 0 ? 'A favor ' + fmtMoney(a.aFavor) : 'Al día'}</div><div class="hint">${a && a.debe > 0 ? 'te debe' : ''}</div></div>
       <div class="card kpi"><div class="lbl">Compras</div><div class="val" style="font-size:22px">${fmtMoney(compras.reduce((s, v) => s + (+v.total || 0), 0))}</div><div class="hint">${compras.length} ventas${ult ? ' · última el ' + fmtDateC(ult.fecha) : ''}</div></div>
@@ -67,13 +67,14 @@ function clienteForm(id, pre = {}, onSaved) {
   const inp = (n, l, ph = '', cls = 'f') => `<label class="${cls}">${l}<input name="${n}" value="${esc(c[n])}" placeholder="${ph}"></label>`;
   modal(`<h3>${id ? 'Editar cliente' : '+ Cliente'}</h3><div class="form">
     ${inp('nombre', 'Nombre o razón social', 'Ej: Constructora Andes S.A.')}${inp('cuit', 'CUIT', '30-12345678-9')}
+    <label class="f">Lista de precios<select name="lista">${listaOptions(c.lista)}</select></label>
     <label class="f">Condición frente al IVA<select name="condIva"><option value="">—</option>${COND_IVA.map((x) => `<option ${x === c.condIva ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
     ${inp('contacto', 'Persona de contacto', 'Ej: Laura, compras')}${inp('telefono', 'Teléfono')}${inp('email', 'Email')}${inp('direccion', 'Dirección de entrega', '', 'f full')}${inp('nota', 'Nota', 'Ej: paga a 30 días, pide remito con orden de compra', 'f full')}</div>
     <p class="err" id="clErr"></p>
     <div class="modal-actions">${id ? '<button class="danger izq" id="clDel">Borrar ficha</button>' : ''}<button data-act="close">Cancelar</button><button class="pri" id="clOk">Guardar</button></div>`, (box) => {
     $('#clOk', box).onclick = () => {
       const g = (n) => $(`[name=${n}]`, box).value.trim(); const err = (m) => ($('#clErr', box).textContent = m);
-      const data = { nombre: g('nombre'), cuit: g('cuit'), condIva: g('condIva'), contacto: g('contacto'), telefono: g('telefono'), email: g('email'), direccion: g('direccion'), nota: g('nota') };
+      const data = { nombre: g('nombre'), cuit: g('cuit'), condIva: g('condIva'), contacto: g('contacto'), telefono: g('telefono'), email: g('email'), direccion: g('direccion'), nota: g('nota'), lista: g('lista') };
       if (!data.nombre) return err('Poné el nombre del cliente.');
       if (state.clientes.some((x) => x.id !== id && normCli(x.nombre) === normCli(data.nombre))) return err('Ya hay un cliente con ese nombre.');
       const cuitN = data.cuit.replace(/\D/g, ''); if (cuitN && state.clientes.some((x) => x.id !== id && String(x.cuit || '').replace(/\D/g, '') === cuitN)) return err('Ya hay un cliente con ese CUIT.');

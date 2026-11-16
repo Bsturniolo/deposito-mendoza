@@ -212,7 +212,7 @@ function ejecutar(r) { // devuelve {txt, deshacer}
   const id = uid();
   if (r.tipo === 'precio') {
     const pr = leerPrecios(r.texto), ids = [...new Set(r.items.map((i) => i.productoId))], prev = [];
-    ids.forEach((pid) => { const p = prod(pid); prev.push({ id: pid, costo: p.costo || 0, precio: p.precio || 0 }); if (pr.costo && pr.costo !== (p.costo || 0)) { registrar('Cambio de costo', p.nombre, fmtMoney(p.costo || 0), fmtMoney(pr.costo)); p.costo = pr.costo; } if (pr.precio && pr.precio !== (p.precio || 0)) { registrar('Cambio de precio', p.nombre, fmtMoney(p.precio || 0), fmtMoney(pr.precio)); p.precio = pr.precio; } });
+    ids.forEach((pid) => { const p = prod(pid); prev.push({ id: pid, costo: p.costo || 0, precio: p.precio || 0 }); if (pr.costo && pr.costo !== (p.costo || 0)) { registrar('Cambio de costo', p.nombre, fmtMoney(p.costo || 0), fmtMoney(pr.costo)); anotarPrecio(p, 'costo', p.costo, pr.costo, 'Por mensaje'); p.costo = pr.costo; } if (pr.precio && pr.precio !== (p.precio || 0)) { registrar('Cambio de precio', p.nombre, fmtMoney(p.precio || 0), fmtMoney(pr.precio)); anotarPrecio(p, 'precio', p.precio, pr.precio, 'Por mensaje'); p.precio = pr.precio; } });
     return { txt: '✅ Precios guardados.\n' + ids.map((pid) => { const p = prod(pid); return `${p.nombre}: costo ${p.costo ? fmtMoney(p.costo) : 'sin cargar'} · precio de venta ${p.precio ? fmtMoney(p.precio) : 'sin cargar'}${p.costo && p.precio ? ` · ganás ${fmtMoney(p.precio - p.costo)} por unidad` : ''}`; }).join('\n'), deshacer: { k: 'precio', prev } };
   }
   if (r.tipo === 'presupuesto') {

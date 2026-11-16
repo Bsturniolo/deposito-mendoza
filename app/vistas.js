@@ -84,7 +84,7 @@ VISTAS.stock = () => {
     ${ps.slice().sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map((p) => `<tr class="click" data-act="prodVer" data-id="${p.id}"><td>${esc(p.codigo || '')}</td><td><b>${esc(p.nombre)}</b>${p.color ? ' <span class="small muted">' + esc(p.color) + '</span>' : ''}</td><td>${esc(catDe(p))}</td><td>${sinTalle(p) ? '' : esc(tallesDe(p).filter((t) => stockT(p, t) > 0).map((t) => `${t} (${stockT(p, t)})`).join(' · '))}</td><td class="n b">${stockTotal(p)}</td><td class="n">${p.precio ? fmtMoney(p.precio) : '—'}</td></tr>`).join('')}
     </tbody><tfoot><tr><td colspan="4" class="b">Total</td><td class="n b">${fmtNum(tot)}</td><td></td></tr></tfoot></table></div>`;
   return `<div class="spread"><div><h1>Artículos</h1><p class="sub">Todo lo que vendés, ordenado por categoría (calzado, remeras, gorras o las que crees), con su número, precio y stock. Tocá un artículo para ver el detalle.</p></div>
-    <div class="row"><button class="pri" data-act="entradaNueva">📥 Entró</button><button data-act="salidaNueva">📤 Salió</button><button data-act="prodNuevo">+ Artículo</button></div></div>
+    <div class="row"><button class="pri" data-act="entradaNueva">📥 Entró</button><button data-act="salidaNueva">📤 Salió</button><button data-act="prodNuevo">+ Artículo</button><button data-act="subirPrecios">📈 Subir precios</button></div></div>
   <div class="grid kpis"><div class="card kpi"><div class="lbl">Artículos</div><div class="val">${todos.length}</div><div class="hint">${fmtNum(todos.reduce((s, p) => s + stockTotal(p), 0))} unidades en stock</div></div>
     <div class="card kpi"><div class="lbl">Mercadería a costo</div><div class="val">${fmtMoney(valorStock())}</div><div class="hint">lo que pagaste</div></div>
     <div class="card kpi"><div class="lbl">Ganancia si vendés todo</div><div class="val c-in">${fmtMoney(potencial)}</div><div class="hint">precio − costo de cada unidad</div></div>
@@ -129,7 +129,7 @@ function prodVer(id, todo) {
   modal(`<h3>${esc(p.nombre)}</h3><p class="sub">${esc([p.codigo ? 'Artículo N° ' + p.codigo : '', catDe(p), p.marca, p.color].filter(Boolean).join(' · '))}${p.descripcion ? '<br>' + esc(p.descripcion) : ''}</p>
     <div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:12px">
       <div class="card kpi"><div class="lbl">Costo por unidad</div><div class="val" style="font-size:19px">${p.costo ? fmtMoney(p.costo) : '<span class="c-warn">Falta</span>'}</div></div>
-      <div class="card kpi"><div class="lbl">Precio de venta</div><div class="val" style="font-size:19px">${p.precio ? fmtMoney(p.precio) : '<span class="c-warn">Falta</span>'}</div><div class="hint">${p.precio && p.costo ? `ganás ${fmtMoney(p.precio - p.costo)} por unidad (${Math.round((p.precio - p.costo) / p.precio * 100)}%)` : ''}</div></div>
+      <div class="card kpi"><div class="lbl">Precio de venta</div><div class="val" style="font-size:19px">${p.precio ? fmtMoney(p.precio) : '<span class="c-warn">Falta</span>'}</div><div class="hint">${p.precio ? ivaTxt(p.precio) + '<br>' : ''}${p.precio && p.costo ? `ganás ${fmtMoney(p.precio - p.costo)} por unidad (${Math.round((p.precio - p.costo) / p.precio * 100)}%)` : ''}${p.precio ? listas().map((l) => `<br>${esc(l.nombre)}: ${fmtMoney(precioLista(p, l.id))}`).join('') : ''}</div></div>
       <div class="card kpi"><div class="lbl">Invertido</div><div class="val c-inv" style="font-size:19px">${fmtMoney(n.invertido)}</div><div class="hint">${n.entraron} unidades que entraron</div></div>
       <div class="card kpi"><div class="lbl">Ganancia de ventas</div><div class="val c-in" style="font-size:19px">${fmtMoney(n.ganancia)}</div><div class="hint">${n.vendidos} unidades vendidas · ${fmtMoney(n.vendido)}</div></div>
       <div class="card kpi"><div class="lbl">Si vendés lo que hay</div><div class="val" style="font-size:19px">${fmtMoney(n.potencial)}</div><div class="hint">de ganancia (${stockTotal(p)} unidades)</div></div>
@@ -137,6 +137,7 @@ function prodVer(id, todo) {
     <div class="curva">${tallesDe(p).map((t) => { const n = stockT(p, t); return `<label>${esc(curvaLbl(t))}<input readonly value="${n}" class="${n > 0 ? 'has' : ''}" style="${n <= 0 ? 'color:var(--out)' : ''}"></label>`; }).join('')}</div>
     <p class="b mt">Total: ${stockTotal(p)} unidades</p>
     <div class="row"><button class="pri" id="pvIn">📥 Entró</button><button id="pvOut">📤 Salió</button><button id="pvCont">🔢 Contar stock</button><button id="pvEd">✏️ Editar artículo</button></div>
+    ${todo ? '' : precioHistHTML(p)}
     <h2>${todo ? 'Todos los movimientos' : 'Últimos movimientos'}</h2>${movs.length ? `<div class="list">${movs.map(({ m, saldo }) => `<div class="li"><div class="m"><b>${esc(m.motivo)}</b><span>${fmtDate(m.fecha)}${tl(m.talle) ? ' · talle ' + esc(m.talle) : ''}${m.quien ? ' · ' + esc(nombreDe(m.quien)) : ''}</span></div><div class="s"><span class="pill ${m.cant > 0 ? 'in' : 'out'}">${m.cant > 0 ? '+' : ''}${m.cant}</span><span class="small muted saldo">quedan ${saldo}</span></div></div>`).join('')}</div>${!todo && hist.length > movs.length ? `<button class="sm mt" id="pvTodo">Ver los ${hist.length} movimientos</button>` : ''}` : '<div class="empty">Sin movimientos todavía.</div>'}
     <div class="modal-actions"><button data-act="close">Cerrar</button></div>`, (box) => {
     $('#pvIn', box).onclick = () => movStockForm('entrada', { items: [{ productoId: id }] });
@@ -160,7 +161,8 @@ function prodForm(id, pre, onSaved) {
     <label class="f">Marca<input name="marca" value="${esc(p.marca)}"></label>
     <label class="f">Color<input name="color" value="${esc(p.color)}" placeholder="Ej: Marrón"></label>
     <label class="f">Costo por unidad (lo que pagás)<input name="costo" inputmode="decimal" value="${p.costo || ''}" placeholder="$"></label>
-    <label class="f">Precio de venta por unidad<input name="precio" inputmode="decimal" value="${p.precio || ''}" placeholder="$"></label>
+    <label class="f">Precio de venta por unidad (público)<input name="precio" inputmode="decimal" value="${p.precio || ''}" placeholder="$"></label>
+    ${listas().map((l) => `<label class="f">Precio ${esc(l.nombre)} (opcional)<input data-lp="${esc(l.id)}" inputmode="decimal" value="${Number((p.precios || {})[l.id]) || ''}" placeholder="${Number(l.desc) ? 'Si lo dejás vacío: público −' + fmtNum(l.desc) + '%' : 'Si lo dejás vacío: igual a público'}"></label>`).join('')}
     <label class="f">Avisarme cuando queden (por talle)<input name="stockMin" inputmode="numeric" value="${p.stockMin ?? ''}"></label>
     <label class="f">Otros nombres para el chat<input name="alias" value="${esc(p.alias)}" placeholder="Ej: bolt, botin marron"></label>
     ${isNew ? `<div class="full"><label class="f">Stock que hay hoy (opcional)</label><div class="curva" id="pfCur"></div><label class="chk mt"><input type="checkbox" id="pfInv"> Contar este stock como inversión de hoy</label></div>` : ''}
@@ -177,14 +179,16 @@ function prodForm(id, pre, onSaved) {
       let categoria = g('categoria'); if (categoria === '__nueva') { categoria = g('catNueva'); if (!categoria) return err('Escribí el nombre de la categoría nueva.'); categoria = cats.find((c) => c.toLowerCase() === categoria.toLowerCase()) || categoria[0].toUpperCase() + categoria.slice(1); }
       if (g('codigo') && state.productos.some((x) => x.id !== id && !x.archivado && String(x.codigo || '').toLowerCase() === g('codigo').toLowerCase())) return err('Ya hay otro artículo con ese número.');
       const data = { codigo: g('codigo'), nombre: g('nombre'), categoria, tallesDef: g('tallesDef') || defDe(categoria), descripcion: g('descripcion'), marca: g('marca'), color: g('color'), costo: numIn(g('costo')), precio: numIn(g('precio')), stockMin: Math.round(numIn(g('stockMin'))), alias: g('alias') };
+      data.precios = {}; $$('[data-lp]', box).forEach((i) => { const n = numIn(i.value); if (n) data.precios[i.dataset.lp] = n; });
       let rec;
       if (isNew) {
         rec = Object.assign({ id: uid(), talles: {}, creado: todayStr() }, data); state.productos.push(rec);
         const items = $$('#pfCur input', box).map((i) => ({ productoId: rec.id, talle: i.dataset.t, cant: Math.round(numIn(i.value)) })).filter((i) => i.cant > 0);
         if (items.length) { moverStock(items, 1, 'Stock inicial'); if ($('#pfInv', box) && $('#pfInv', box).checked) inversionEntrada(items, todayStr(), rec.id, 'Stock inicial de ' + rec.nombre); }
       } else {
-        if ((p.precio || 0) !== data.precio) registrar('Cambio de precio', data.nombre, fmtMoney(p.precio || 0), fmtMoney(data.precio));
-        if ((p.costo || 0) !== data.costo) registrar('Cambio de costo', data.nombre, fmtMoney(p.costo || 0), fmtMoney(data.costo));
+        if ((p.precio || 0) !== data.precio) { registrar('Cambio de precio', data.nombre, fmtMoney(p.precio || 0), fmtMoney(data.precio)); anotarPrecio(p, 'precio', p.precio, data.precio, 'Editado a mano'); }
+        if ((p.costo || 0) !== data.costo) { registrar('Cambio de costo', data.nombre, fmtMoney(p.costo || 0), fmtMoney(data.costo)); anotarPrecio(p, 'costo', p.costo, data.costo, 'Editado a mano'); }
+        listas().forEach((l) => { const a = Number((p.precios || {})[l.id]) || 0, b = data.precios[l.id] || 0; if (a !== b) { registrar('Cambio de precio ' + l.nombre, data.nombre, a ? fmtMoney(a) : 'según lista', b ? fmtMoney(b) : 'según lista'); if (a && b) anotarPrecio(p, 'lista:' + l.id, a, b, 'Editado a mano'); } });
         if (p.nombre !== data.nombre) registrar('Cambio de nombre', 'Artículo', p.nombre, data.nombre);
         rec = Object.assign(p, data);
       }
@@ -254,7 +258,8 @@ VISTAS.ventas = () => {
     </tbody></table></div>` : `<div class="empty">${ui.ventasTab === 'deben' ? 'Nadie te debe plata.' : 'No hay ventas en este mes.'}</div>`}`;
 };
 function ventaForm(pre = {}, onSaved) {
-  const precioDe = (p) => p.precio || '';
+  const c00 = clienteDe({ cliente: pre.cliente, clienteId: pre.clienteId }); let lista = pre.lista != null ? pre.lista : (c00 && c00.lista) || '';
+  const precioDe = (p) => precioLista(p, lista) || '';
   const lines = itemsToLines(pre.items, precioDe);
   const rec = { foto: pre.foto || '' };
   let totalManual = pre.total ? Number(pre.total) : null, forzar = false;
@@ -265,6 +270,7 @@ function ventaForm(pre = {}, onSaved) {
     <label class="f">Teléfono (opcional)<input name="tel" inputmode="tel" value="${esc(pre.telefono)}"></label>
     <label class="f">Fecha<input type="date" name="fecha" value="${pre.fecha || todayStr()}"></label>
     <label class="f">Forma de pago<select name="pago">${PAGOS.map((p) => `<option ${p === (pre.pago || 'Efectivo') ? 'selected' : ''}>${p === 'Cuenta corriente' ? 'Cuenta corriente (me debe)' : p}</option>`).join('')}</select></label>
+    <label class="f">Lista de precios<select name="lista">${listaOptions(lista)}</select></label>
     <label class="f">Comprobante<select name="comp">${COMPROBANTES.map((c) => `<option ${c === (pre.comp || (c0 && c0.comp) || 'Remito') ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
     <label class="f">N° de factura (si ya la hiciste)<input name="compNro" value="${esc(pre.compNro)}" placeholder="Ej: 0001-00001234"></label></div>
     <div class="lineas mt" id="vfL"></div><button type="button" class="sm mt" id="vfAdd">+ Otro artículo</button>
@@ -278,13 +284,16 @@ function ventaForm(pre = {}, onSaved) {
     if (totalManual != null) tot.value = fmtNum(totalManual);
     const ed = lineasEditor($('#vfL', box), lines, { precio: 'Precio por unidad', verStock: !pre.desdeMuestra, precioDe }, calc);
     $('#vfAdd', box).onclick = ed.add;
+    const reprecio = () => { lines.forEach((l) => { const p = prod(l.productoId); if (p) l.precio = precioLista(p, lista) || l.precio; }); totalManual = null; ed.redraw(); };
+    $('[name=lista]', box).onchange = (e) => { lista = e.target.value; reprecio(); };
+    $('[name=cliente]', box).onchange = (e) => { const c = clienteDe({ cliente: e.target.value }); if (!c) return; if (c.telefono && !$('[name=tel]', box).value) $('[name=tel]', box).value = c.telefono; if (c.comp) $('[name=comp]', box).value = c.comp; if ((c.lista || '') !== lista) { lista = c.lista || ''; $('[name=lista]', box).value = lista; reprecio(); } };
     $('#vfOk', box).onclick = () => {
       const items = linesToItems(lines); if (!items.length) return ($('#vfErr', box).textContent = 'Elegí el artículo y poné cuántas unidades de cada talle.');
       if (!pre.desdeMuestra && !forzar) { const f = faltantes(items); if (f.length) { forzar = true; $('#vfErr', box).textContent = 'No alcanza el stock: ' + f.map((x) => `${x.p.nombre} talle ${x.t} (hay ${x.hay})`).join(', ') + '. Si igual lo vendiste, tocá de nuevo y el stock queda en negativo hasta que lo corrijas.'; $('#vfOk', box).textContent = 'Guardar igual'; return; } }
       const g = (n) => $(`[name=${n}]`, box).value.trim();
       const pago = g('pago').startsWith('Cuenta') ? 'Cuenta corriente' : g('pago');
       if (pago === 'Cuenta corriente' && !g('cliente')) return ($('#vfErr', box).textContent = 'Para vender a cuenta poné a quién, así queda en su cuenta corriente.');
-      const v = { id: uid(), fecha: g('fecha') || todayStr(), hora: new Date().toTimeString().slice(0, 5), quien: quienSoy(), cliente: g('cliente'), telefono: g('tel'), pago, cobrado: pago !== 'Cuenta corriente', items: items.map((i) => Object.assign(i, { costo: Number(prod(i.productoId).costo) || 0 })), total: numIn(tot.value) || items.reduce((s, i) => s + i.cant * i.precio, 0), nota: g('nota'), foto: rec.foto, origen: pre.origen || 'app', comp: g('comp'), compNro: g('compNro') };
+      const v = { id: uid(), fecha: g('fecha') || todayStr(), hora: new Date().toTimeString().slice(0, 5), quien: quienSoy(), cliente: g('cliente'), telefono: g('tel'), pago, cobrado: pago !== 'Cuenta corriente', items: items.map((i) => Object.assign(i, { costo: Number(prod(i.productoId).costo) || 0 })), total: numIn(tot.value) || items.reduce((s, i) => s + i.cant * i.precio, 0), nota: g('nota'), foto: rec.foto, origen: pre.origen || 'app', comp: g('comp'), compNro: g('compNro'), lista };
       const vc = vincularCliente(v); if (vc) vc.comp = v.comp;
       if (pre.desdeMuestra) v.muestraId = pre.desdeMuestra; else moverStock(v.items, -1, 'Venta' + (v.cliente ? ' a ' + v.cliente : ''), v.id, v.fecha);
       state.ventas.push(v);
@@ -637,6 +646,8 @@ VISTAS.ajustes = () => {
     : `<p>Ahora los datos quedan solo en este dispositivo. Para que tu viejo, tu vieja y vos vean lo mismo en el celu y en la PC, hay que conectar Firebase (está explicado en el README del proyecto). Si ya tenés la configuración, pegala acá:</p><textarea id="cfFb" placeholder="const firebaseConfig = { apiKey: ..., projectId: ... }"></textarea><div class="modal-actions"><button class="pri" data-act="cfgCloud">Conectar</button></div>`}</div>
   <h2>💾 Respaldo</h2>
   <div class="card"><p class="small muted">${window.desktop ? 'En la PC se guarda solo una copia todos los días en Documentos / Deposito Mendoza - Respaldos.' : 'Bajá una copia de todos los datos de vez en cuando.'}</p><div class="row"><button data-act="backupBajar">⬇️ Descargar copia</button><label class="btn">⬆️ Recuperar copia<input type="file" id="cfRest" accept="application/json" class="hidden"></label>${window.desktop ? '<button data-act="backupAbrir">📂 Abrir carpeta de respaldos</button>' : ''}</div></div>
+  <h2>🏷️ Listas de precios</h2>
+  <div class="card">${listasHTML()}</div>
   <h2>📜 Registro de cambios</h2>
   <div class="card">${registroHTML()}</div>
   <h2>Datos de ejemplo</h2><div class="card"><div class="row"><button data-act="cargarEjemplos">Cargar datos de ejemplo</button>${COLS.some((k) => state[k].some((x) => x.ejemplo)) ? '<button data-act="borrarEjemplos">Borrar datos de ejemplo</button>' : ''}</div></div>`;

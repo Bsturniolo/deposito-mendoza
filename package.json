@@ -1,6 +1,6 @@
 {
   "name": "deposito-mendoza",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Depósito Mendoza: stock por talle, ventas, compras, muestras, calendario y balance",
   "main": "main.js",
   "scripts": {
