@@ -40,8 +40,8 @@ VISTAS.inicio = () => {
     <div class="card ${evs.some((e) => e.fecha < hoy) ? 'alerta roja' : ''}"><div class="spread"><h3>📅 Próximos días y préstamos</h3><button class="sm" data-act="eventoNuevo">+ Anotar</button></div>
       ${evs.length ? `<div class="list">${evs.slice(0, 6).map((e) => evLi(e)).join('')}</div>` : '<div class="empty">Nada anotado para estos días.</div>'}
     </div>
-    <div class="card"><div class="spread"><h3>💰 Me deben</h3><span class="b">${fmtMoney(meDeben().reduce((s, v) => s + (+v.total || 0), 0))}</span></div>
-      ${meDeben().length ? `<div class="list">${meDeben().slice(0, 5).map((v) => `<div class="li"><div class="m"><b>${esc(v.cliente || 'Sin nombre')}</b><span>${fmtDateC(v.fecha)} · ${esc(resumenItems(v.items, 1))}</span></div><div class="s"><b>${fmtMoney(v.total)}</b><button class="sm" data-act="cobrar" data-id="${v.id}">Cobré</button></div></div>`).join('')}</div>` : '<div class="empty">Nadie te debe plata.</div>'}
+    <div class="card"><div class="spread"><h3>💰 Me deben</h3><span class="b">${fmtMoney(debeTotal())}</span></div>
+      ${deudores().length ? `<div class="list">${deudores().slice(0, 5).map((a) => `<div class="li click" data-act="clienteVer" data-id="${esc(a.key)}"><div class="m"><b>${esc(a.nombre)}</b><span>${a.ventas.filter((v) => cuentas().pend.get(v.id) > 0).length} ventas sin pagar · desde el ${fmtDateC((a.ventas.find((v) => cuentas().pend.get(v.id) > 0) || {}).fecha)}</span></div><div class="s"><b>${fmtMoney(a.debe)}</b><button class="sm" data-act="cobroNuevo" data-id="${esc(a.key)}">Cobré</button></div></div>`).join('')}</div>` : '<div class="empty">Nadie te debe plata.</div>'}
     </div>
     <div class="card"><div class="spread"><h3>👢 Para reponer</h3><button class="sm" data-act="goto" data-id="stock">Ver stock</button></div>
       ${stockBajo().length ? `<div class="list">${stockBajo().slice(0, 8).map((x) => `<div class="li"><div class="m"><b>${esc(x.p.nombre)} · talle ${x.t}</b></div><div class="s"><span class="pill ${x.n <= 0 ? 'out' : 'warn'}">${x.n <= 0 ? 'sin stock' : 'quedan ' + x.n}</span></div></div>`).join('')}</div>` : '<div class="empty">Todos los talles tienen stock suficiente.</div>'}
@@ -233,6 +233,12 @@ function movStockForm(tipo, pre = {}, onSaved) {
 }
 
 // ---------- Ventas ----------
+function pagoPill(v) {
+  if (v.pago !== 'Cuenta corriente') return `<span class="pill">${esc(v.pago)}</span>`;
+  const p = pendiente(v);
+  return p <= 0 ? '<span class="pill in">Cobrada</span>' : p < (Number(v.total) || 0) ? `<span class="pill warn">Debe ${fmtMoney(p)}</span>` : '<span class="pill warn">Me debe</span>';
+}
+const compLbl = (v) => v.comp ? v.comp + (v.compNro ? ' ' + v.compNro : '') : '';
 VISTAS.ventas = () => {
   const m = ui.ventasMes;
   let vs = state.ventas.filter((v) => enMes(v.fecha, m));
@@ -242,9 +248,9 @@ VISTAS.ventas = () => {
   return `<div class="spread"><div><h1>Ventas</h1><p class="sub">${ui.ventasTab === 'deben' ? 'Ventas a cuenta que todavía no te pagaron' : mesLbl(m)}</p></div>
     <div class="row"><input type="month" id="ventasMes" value="${m}" style="width:auto"><button class="acc" data-act="ventaNueva">🛒 Nueva venta</button></div></div>
   <div class="tabs"><button class="${ui.ventasTab === 'todas' ? 'on' : ''}" data-act="ventasTab" data-id="todas">Del mes</button><button class="${ui.ventasTab === 'deben' ? 'on' : ''}" data-act="ventasTab" data-id="deben">Me deben (${meDeben().length})</button></div>
-  ${ui.ventasTab === 'todas' ? `<div class="grid kpis" style="margin-bottom:14px"><div class="card kpi"><div class="lbl">Vendido</div><div class="val">${fmtMoney(r.vendido)}</div><div class="hint">${r.ventas.length} ventas</div></div><div class="card kpi"><div class="lbl">Unidades vendidas</div><div class="val">${pares(r.ventas.flatMap((v) => v.items))}</div></div><div class="card kpi"><div class="lbl">Ganancia sobre la mercadería</div><div class="val c-in">${fmtMoney(r.bruta)}</div><div class="hint">${r.vendido ? Math.round(r.bruta / r.vendido * 100) : 0}% de lo vendido</div></div></div>` : ''}
-  ${vs.length ? `<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Qué se llevó</th><th>Pago</th><th class="n">Total</th></tr></thead><tbody>
-    ${vs.map((v) => `<tr class="click${v.anulada ? ' anulada' : ''}" data-act="ventaVer" data-id="${v.id}"><td>${fmtDateC(v.fecha)}</td><td>${esc(v.cliente || '—')}</td><td>${esc(resumenItems(v.items, 2))}</td><td>${v.anulada ? '<span class="pill out">Anulada</span>' : `<span class="pill ${v.pago === 'Cuenta corriente' ? (v.cobrado ? 'in' : 'warn') : ''}">${v.pago === 'Cuenta corriente' ? (v.cobrado ? 'Cobrada' : 'Me debe') : esc(v.pago)}</span>`}</td><td class="n b">${fmtMoney(v.total)}</td></tr>`).join('')}
+  ${ui.ventasTab === 'todas' ? `<div class="grid kpis" style="margin-bottom:14px"><div class="card kpi"><div class="lbl">Vendido</div><div class="val">${fmtMoney(r.vendido)}</div><div class="hint">${r.ventas.length} ventas · con factura ${fmtMoney(r.ventas.filter((v) => /^Factura/.test(v.comp || '')).reduce((s, v) => s + (+v.total || 0), 0))}</div></div><div class="card kpi"><div class="lbl">Unidades vendidas</div><div class="val">${pares(r.ventas.flatMap((v) => v.items))}</div></div><div class="card kpi"><div class="lbl">Ganancia sobre la mercadería</div><div class="val c-in">${fmtMoney(r.bruta)}</div><div class="hint">${r.vendido ? Math.round(r.bruta / r.vendido * 100) : 0}% de lo vendido</div></div></div>` : ''}
+  ${vs.length ? `<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Qué se llevó</th><th>Comprobante</th><th>Pago</th><th class="n">Total</th></tr></thead><tbody>
+    ${vs.map((v) => `<tr class="click${v.anulada ? ' anulada' : ''}" data-act="ventaVer" data-id="${v.id}"><td>${fmtDateC(v.fecha)}</td><td>${esc(v.cliente || '—')}</td><td>${esc(resumenItems(v.items, 2))}</td><td class="small">${esc(compLbl(v)) || '<span class="muted">—</span>'}</td><td>${v.anulada ? '<span class="pill out">Anulada</span>' : pagoPill(v)}</td><td class="n b">${fmtMoney(v.total)}</td></tr>`).join('')}
     </tbody></table></div>` : `<div class="empty">${ui.ventasTab === 'deben' ? 'Nadie te debe plata.' : 'No hay ventas en este mes.'}</div>`}`;
 };
 function ventaForm(pre = {}, onSaved) {
@@ -252,12 +258,15 @@ function ventaForm(pre = {}, onSaved) {
   const lines = itemsToLines(pre.items, precioDe);
   const rec = { foto: pre.foto || '' };
   let totalManual = pre.total ? Number(pre.total) : null, forzar = false;
-  const clientes = [...new Set(state.ventas.concat(state.muestras).map((v) => v.cliente).filter(Boolean))];
+  const clientes = [...new Set(state.clientes.map((c) => c.nombre).concat(state.ventas.concat(state.muestras).map((v) => v.cliente)).filter(Boolean))];
+  const c0 = clienteDe({ cliente: pre.cliente, clienteId: pre.clienteId });
   modal(`<h3>🛒 Nueva venta</h3>${pre.desdeMuestra ? '<p class="pill acc">Viene de una muestra: el stock ya se descontó cuando la dejaste.</p>' : ''}
     <div class="form"><label class="f">Cliente<input name="cliente" list="vfCli" value="${esc(pre.cliente)}" placeholder="Nombre o empresa"><datalist id="vfCli">${clientes.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>
     <label class="f">Teléfono (opcional)<input name="tel" inputmode="tel" value="${esc(pre.telefono)}"></label>
     <label class="f">Fecha<input type="date" name="fecha" value="${pre.fecha || todayStr()}"></label>
-    <label class="f">Forma de pago<select name="pago">${PAGOS.map((p) => `<option ${p === (pre.pago || 'Efectivo') ? 'selected' : ''}>${p === 'Cuenta corriente' ? 'Cuenta corriente (me debe)' : p}</option>`).join('')}</select></label></div>
+    <label class="f">Forma de pago<select name="pago">${PAGOS.map((p) => `<option ${p === (pre.pago || 'Efectivo') ? 'selected' : ''}>${p === 'Cuenta corriente' ? 'Cuenta corriente (me debe)' : p}</option>`).join('')}</select></label>
+    <label class="f">Comprobante<select name="comp">${COMPROBANTES.map((c) => `<option ${c === (pre.comp || (c0 && c0.comp) || 'Remito') ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+    <label class="f">N° de factura (si ya la hiciste)<input name="compNro" value="${esc(pre.compNro)}" placeholder="Ej: 0001-00001234"></label></div>
     <div class="lineas mt" id="vfL"></div><button type="button" class="sm mt" id="vfAdd">+ Otro artículo</button>
     <label class="f mt">Nota<input name="nota" value="${esc(pre.nota)}"></label>
     <div class="totbar mt"><span class="small muted" id="vfPares"></span><label class="f" style="flex-direction:row;align-items:center;gap:8px">Total<input name="total" inputmode="decimal" style="width:150px;font-weight:800;font-size:18px"></label></div>
@@ -274,7 +283,9 @@ function ventaForm(pre = {}, onSaved) {
       if (!pre.desdeMuestra && !forzar) { const f = faltantes(items); if (f.length) { forzar = true; $('#vfErr', box).textContent = 'No alcanza el stock: ' + f.map((x) => `${x.p.nombre} talle ${x.t} (hay ${x.hay})`).join(', ') + '. Si igual lo vendiste, tocá de nuevo y el stock queda en negativo hasta que lo corrijas.'; $('#vfOk', box).textContent = 'Guardar igual'; return; } }
       const g = (n) => $(`[name=${n}]`, box).value.trim();
       const pago = g('pago').startsWith('Cuenta') ? 'Cuenta corriente' : g('pago');
-      const v = { id: uid(), fecha: g('fecha') || todayStr(), hora: new Date().toTimeString().slice(0, 5), quien: quienSoy(), cliente: g('cliente'), telefono: g('tel'), pago, cobrado: pago !== 'Cuenta corriente', items: items.map((i) => Object.assign(i, { costo: Number(prod(i.productoId).costo) || 0 })), total: numIn(tot.value) || items.reduce((s, i) => s + i.cant * i.precio, 0), nota: g('nota'), foto: rec.foto, origen: pre.origen || 'app' };
+      if (pago === 'Cuenta corriente' && !g('cliente')) return ($('#vfErr', box).textContent = 'Para vender a cuenta poné a quién, así queda en su cuenta corriente.');
+      const v = { id: uid(), fecha: g('fecha') || todayStr(), hora: new Date().toTimeString().slice(0, 5), quien: quienSoy(), cliente: g('cliente'), telefono: g('tel'), pago, cobrado: pago !== 'Cuenta corriente', items: items.map((i) => Object.assign(i, { costo: Number(prod(i.productoId).costo) || 0 })), total: numIn(tot.value) || items.reduce((s, i) => s + i.cant * i.precio, 0), nota: g('nota'), foto: rec.foto, origen: pre.origen || 'app', comp: g('comp'), compNro: g('compNro') };
+      const vc = vincularCliente(v); if (vc) vc.comp = v.comp;
       if (pre.desdeMuestra) v.muestraId = pre.desdeMuestra; else moverStock(v.items, -1, 'Venta' + (v.cliente ? ' a ' + v.cliente : ''), v.id, v.fecha);
       state.ventas.push(v);
       if (pre.desdeMuestra) { const m = state.muestras.find((x) => x.id === pre.desdeMuestra); if (m) { m.estado = 'vendida'; m.fechaCierre = todayStr(); m.ventaId = v.id; } }
@@ -289,12 +300,29 @@ function ventaVer(id) {
   modal(`<h3>Venta · ${fmtDate(v.fecha)}</h3><p class="sub">${esc(v.cliente || 'Sin nombre')}${v.telefono ? ' · ' + esc(v.telefono) : ''} · ${esc(v.pago)}${v.pago === 'Cuenta corriente' ? (v.cobrado ? ' (cobrada el ' + fmtDate(v.fechaCobro) + ')' : ' (me debe)') : ''}${v.origen === 'chat' ? ' · cargada por mensaje' : ''}${v.quien ? ' · cargó ' + esc(nombreDe(v.quien)) : ''}</p>
     ${v.anulada ? `<p class="anulada-box">❌ Venta anulada el ${fmtDate(v.fechaAnulada)}${v.anuladaPor ? ' por ' + esc(nombreDe(v.anuladaPor)) : ''}${v.motivoAnulada ? ': ' + esc(v.motivoAnulada) : ''}. No cuenta en los totales y las unidades volvieron al stock.</p>` : ''}
     <div class="tablewrap"><table><thead><tr><th>Artículo</th><th>Talle</th><th class="n">Cant.</th><th class="n">Precio</th></tr></thead><tbody>${v.items.map((i) => `<tr><td>${esc(prodNombre(i.productoId, i.nombre))}</td><td>${esc(tl(i.talle))}</td><td class="n">${i.cant}</td><td class="n">${fmtMoney(i.precio)}</td></tr>`).join('')}</tbody></table></div>
-    <p class="b mt" style="font-size:20px">Total ${fmtMoney(v.total)}</p>${v.nota ? `<p>${esc(v.nota)}</p>` : ''}
+    <p class="b mt" style="font-size:20px">Total ${fmtMoney(v.total)}${pendiente(v) > 0 && pendiente(v) < v.total ? ` <span class="pill warn">debe ${fmtMoney(pendiente(v))}</span>` : ''}</p>${v.nota ? `<p>${esc(v.nota)}</p>` : ''}
+    <div class="row"><span>🧾 Comprobante: <b>${esc(compLbl(v) || 'sin cargar')}</b></span>${v.anulada ? '' : '<button class="sm" id="vvComp">Cambiar</button>'}${clienteDe(v) ? `<button class="sm" data-act="clienteVer" data-id="${esc(cliKey(v))}">👤 Ver cliente</button>` : ''}</div>
     <div class="row"><button class="pri" id="vvImp">🖨️ Imprimir remito</button><button id="vvImpP">🖨️ Remito con precios</button></div>
-    <div class="modal-actions">${v.anulada ? '' : `<button class="danger izq" id="vvAn">Anular venta</button>${!v.cobrado ? `<button class="pri" data-act="cobrar" data-id="${v.id}">💰 Me pagó</button>` : ''}`}<a class="btn wa" href="${waLink(v.telefono, txt)}" target="_blank" rel="noopener">💬 Mandar detalle</a><button data-act="close">Cerrar</button></div>`, (box) => {
+    <div class="modal-actions">${v.anulada ? '' : `<button class="danger izq" id="vvAn">Anular venta</button>${pendiente(v) > 0 ? `<button class="pri" data-act="cobrar" data-id="${v.id}">💰 Me pagó</button>` : ''}`}<a class="btn wa" href="${waLink(v.telefono, txt)}" target="_blank" rel="noopener">💬 Mandar detalle</a><button data-act="close">Cerrar</button></div>`, (box) => {
     const imp = (cp) => imprimirHoja(ventaHoja(v, cp), `Remito ${presuNro(ventaNro(v))}${v.cliente ? ' - ' + v.cliente : ''}`);
     $('#vvImp', box).onclick = () => imp(false); $('#vvImpP', box).onclick = () => imp(true);
     const an = $('#vvAn', box); if (an) an.onclick = () => anularVentaForm(id);
+    const cp = $('#vvComp', box); if (cp) cp.onclick = () => compForm(id);
+  });
+}
+function compForm(id) {
+  const v = state.ventas.find((x) => x.id === id); if (!v) return;
+  modal(`<h3>Comprobante de la venta</h3><p class="sub">${esc(v.cliente || 'Sin nombre')} · ${fmtMoney(v.total)} · ${fmtDate(v.fecha)}</p>
+    <div class="form"><label class="f">Comprobante<select id="cpT">${COMPROBANTES.map((c) => `<option ${c === (v.comp || 'Remito') ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+    <label class="f">N° de factura<input id="cpN" value="${esc(v.compNro)}" placeholder="Ej: 0001-00001234"></label></div>
+    <p class="small muted">La factura legal se sigue haciendo en ARCA; acá queda anotado con qué se hizo cada venta.</p>
+    <div class="modal-actions"><button data-act="close">Cancelar</button><button class="pri" id="cpOk">Guardar</button></div>`, (box) => {
+    $('#cpOk', box).onclick = () => {
+      const antes = compLbl(v) || 'sin cargar'; v.comp = $('#cpT', box).value; v.compNro = $('#cpN', box).value.trim();
+      if (antes !== compLbl(v)) registrar('Cambio de comprobante', `${v.cliente || 'Sin nombre'} · ${fmtMoney(v.total)} · venta del ${fmtDate(v.fecha)}`, antes, compLbl(v));
+      const c = clienteDe(v); if (c) c.comp = v.comp;
+      closeModal(); commit(); ventaVer(id);
+    };
   });
 }
 function anularVentaForm(id) {
@@ -568,7 +596,7 @@ VISTAS.balance = () => {
   <div class="grid kpis"><div class="card kpi"><div class="lbl">Ventas</div><div class="val">${fmtMoney(r.vendido)}</div><div class="hint">${pares(r.ventas.flatMap((v) => v.items))} unidades</div></div>
     <div class="card kpi"><div class="lbl">Ganancia neta</div><div class="val ${r.neta < 0 ? 'c-out' : 'c-in'}">${fmtMoney(r.neta)}</div><div class="hint">lo que quedó después de todo</div></div>
     <div class="card kpi"><div class="lbl">Inversión</div><div class="val c-inv">${fmtMoney(r.inversion)}</div><div class="hint">mercadería y otras compras</div></div>
-    <div class="card kpi"><div class="lbl">Me deben / Debo</div><div class="val" style="font-size:18px"><span class="c-in">${fmtMoney(meDeben().reduce((s, v) => s + (+v.total || 0), 0))}</span> / <span class="c-out">${fmtMoney(debo().reduce((s, c) => s + (+c.total || 0), 0))}</span></div><div class="hint">a hoy</div></div></div>
+    <div class="card kpi"><div class="lbl">Me deben / Debo</div><div class="val" style="font-size:18px"><span class="c-in">${fmtMoney(debeTotal())}</span> / <span class="c-out">${fmtMoney(debo().reduce((s, c) => s + (+c.total || 0), 0))}</span></div><div class="hint">a hoy</div></div></div>
   <div class="grid g2 mt">
     <div class="card"><h3>Estado de resultados</h3><table class="er"><tbody>
       <tr><td>Ventas</td><td class="n">${fmtMoney(r.vendido)}</td></tr>
@@ -619,13 +647,13 @@ function registroHTML() {
   return `<div class="tablewrap"><table><thead><tr><th>Cuándo</th><th>Quién</th><th>Qué</th><th>Detalle</th><th>Antes → después</th></tr></thead><tbody>${rs.map((x) => `<tr><td>${fmtDateC(x.fecha)} ${esc(x.hora)}</td><td>${esc(nombreDe(x.quien))}</td><td class="b">${esc(x.que)}</td><td>${esc(x.detalle)}</td><td>${x.antes !== '' || x.despues !== '' ? esc(x.antes) + ' → ' + esc(x.despues) : ''}</td></tr>`).join('')}</tbody></table></div>${todos.length > rs.length ? `<button class="sm mt" data-act="registroTodo">Ver los ${todos.length} cambios</button>` : ''}`;
 }
 VISTAS.mas = () => {
-  const items = [['inicio', '🏠', 'Inicio'], ['mensaje', '💬', 'Cargar por mensaje'], ['ventas', '🛒', 'Ventas'], ['stock', '👢', 'Artículos'], ['presupuestos', '📝', 'Presupuestos'], ['muestras', '📦', 'Muestras'], ['compras', '🧾', 'Compras y facturas'], ['calendario', '📅', 'Calendario'], ['plata', '💵', 'Gastos e inversión'], ['balance', '📊', 'Balance'], ['ajustes', '⚙️', 'Ajustes']];
+  const items = [['inicio', '🏠', 'Inicio'], ['mensaje', '💬', 'Cargar por mensaje'], ['ventas', '🛒', 'Ventas'], ['clientes', '👥', 'Clientes'], ['stock', '👢', 'Artículos'], ['presupuestos', '📝', 'Presupuestos'], ['muestras', '📦', 'Muestras'], ['compras', '🧾', 'Compras y facturas'], ['calendario', '📅', 'Calendario'], ['plata', '💵', 'Gastos e inversión'], ['balance', '📊', 'Balance'], ['ajustes', '⚙️', 'Ajustes']];
   return `<h1>Menú</h1><div class="mas-grid">${items.map(([v, i, l]) => `<button class="mas-it" data-act="goto" data-id="${v}"><span>${i}</span>${l}</button>`).join('')}</div><p class="small muted mt">versión ${esc(window.APP_VERSION || '')}</p>`;
 };
 
 // ---------- Acciones de pantallas ----------
 Object.assign(ACTS, {
-  ventaNueva: () => ventaForm(), ventaVer: (id) => ventaVer(id), registroTodo: () => { ui.registroTodo = true; render(); },
+  ventaNueva: () => ventaForm(), ventaVer: (id) => ventaVer(id), clienteVer: (k) => clienteVer(k), clienteNuevo: () => clienteForm(null), cobroNuevo: (k) => cobroForm(k), cobroVer: (id) => cobroVer(id), registroTodo: () => { ui.registroTodo = true; render(); },
   entradaNueva: () => movStockForm('entrada'), salidaNueva: () => movStockForm('salida'),
   prodNuevo: () => prodForm(null), stockCat: (id) => { ui.stockCat = id; render(); }, stockVer: (id) => { ui.stockVer = id; render(); }, prodVer: (id) => prodVer(id), prodEditar: (id) => prodForm(id),
   compraNueva: () => compraForm(null), facturaArchivo: () => elegirArchivo((a) => compraForm(null, { archivo: a, clase: 'otra' })), compraVer: (id) => compraVer(id),
@@ -633,7 +661,7 @@ Object.assign(ACTS, {
   muestraVendida: (id) => { const m = state.muestras.find((x) => x.id === id); if (m) ventaForm({ cliente: m.cliente, telefono: m.telefono, items: m.items.map((i) => Object.assign({}, i, { precio: (prod(i.productoId) || {}).precio || '' })), desdeMuestra: m.id }); },
   muestraBorrar: (id) => confirmBox('Se borra la muestra y las unidades vuelven al stock.', () => { const m = state.muestras.find((x) => x.id === id); if (m && m.estado === 'afuera') moverStock(m.items, 1, 'Muestra borrada', m.id); state.muestras = state.muestras.filter((x) => x.id !== id); commit(); }, 'Borrar'),
   muestrasTab: (id) => { ui.muestrasTab = id; render(); }, ventasTab: (id) => { ui.ventasTab = id; render(); }, comprasTab: (id) => { ui.comprasTab = id; render(); },
-  cobrar: (id) => { const v = state.ventas.find((x) => x.id === id); if (!v || v.anulada) return; v.cobrado = true; v.fechaCobro = todayStr(); registrar('Cobro', `${v.cliente || 'Sin nombre'} pagó ${fmtMoney(v.total)} (venta del ${fmtDate(v.fecha)})`, 'Me debe', 'Cobrada'); if (!$('#modal').classList.contains('hidden')) closeModal(); commit(); toast(`Cobrado: ${fmtMoney(v.total)}`); },
+  cobrar: (id) => { const v = state.ventas.find((x) => x.id === id); if (!v || v.anulada) return; const p = pendiente(v); if (p <= 0) return; if (!$('#modal').classList.contains('hidden')) closeModal(); cobroForm(cliKey(v), { monto: p, ventaId: v.id, nota: 'Venta del ' + fmtDate(v.fecha) }); },
   eventoNuevo: () => eventoForm(null), eventoEditar: (id) => eventoForm(id), prestamoNuevo: () => eventoForm(null, { tipo: 'prestamo', fecha: addDays(todayStr(), 7) }),
   eventoHecho: (id) => { const e = state.eventos.find((x) => x.id === id); if (e) { e.hecho = true; commit(); toast('Listo ✓'); } },
   calSel: (d) => { ui.calSel = d; if (d.slice(0, 7) !== ui.calMes) ui.calMes = d.slice(0, 7); render(); },

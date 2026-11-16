@@ -258,7 +258,7 @@ function ejecutar(r) { // devuelve {txt, deshacer}
     const items = precioItems(r).map((i) => Object.assign(i, { costo: Number((prod(i.productoId) || {}).costo) || 0 }));
     const pago = r.pago || 'Efectivo';
     const v = { id, fecha: r.fecha, hora: new Date().toTimeString().slice(0, 5), quien: quienSoy(), cliente: r.cliente, telefono: '', pago, cobrado: pago !== 'Cuenta corriente', items, total: r.monto && !r.montoUnit ? r.monto : items.reduce((s, i) => s + i.cant * i.precio, 0), nota: r.texto, origen: 'chat' };
-    moverStock(items, -1, 'Venta' + (v.cliente ? ' a ' + v.cliente : ''), id, v.fecha); state.ventas.push(v);
+    vincularCliente(v); moverStock(items, -1, 'Venta' + (v.cliente ? ' a ' + v.cliente : ''), id, v.fecha); state.ventas.push(v);
     const neg = items.filter((i) => stockT(prod(i.productoId), i.talle) < 0);
     return { txt: `✅ Venta cargada: ${detalle(items)}${v.cliente ? ' a ' + v.cliente : ''} · ${fmtMoney(v.total)} · ${pago === 'Cuenta corriente' ? 'te queda debiendo' : pago.toLowerCase()}${neg.length ? `\n⚠️ Ojo: según la app no había stock de ${detalle(neg)}. Revisá el stock.` : ''}`, deshacer: { k: 'venta', id } };
   }
@@ -279,8 +279,10 @@ function ejecutar(r) { // devuelve {txt, deshacer}
     return { txt: `✅ Listo, la muestra de ${mu.cliente} volvió. ${detalle(mu.items)} de nuevo en el stock.`, deshacer: { k: 'muestraVuelta', id: mu.id } };
   }
   if (r.tipo === 'cobro') {
-    const v = state.ventas.find((x) => x.id === r.ventaId); v.cobrado = true; v.fechaCobro = r.fecha; registrar('Cobro', `${v.cliente || 'Sin nombre'} pagó ${fmtMoney(v.total)} (venta del ${fmtDate(v.fecha)})`, 'Me debe', 'Cobrada');
-    return { txt: `✅ Cobrado: ${v.cliente} te pagó ${fmtMoney(v.total)} de la venta del ${fmtDate(v.fecha)}.`, deshacer: { k: 'cobro', id: v.id } };
+    const v = state.ventas.find((x) => x.id === r.ventaId), p = pendiente(v), monto = r.monto && r.monto < p ? r.monto : p;
+    const c = cobroNuevo({ clienteId: v.clienteId, cliente: v.cliente, monto, medio: /transf/.test(norm(r.texto)) ? 'Transferencia' : /cheq/.test(norm(r.texto)) ? 'Cheque' : 'Efectivo', fecha: r.fecha, ventaId: v.id, origen: 'chat' });
+    const queda = (cuentas().porCliente[cliKey(v)] || {}).debe || 0;
+    return { txt: `✅ Cobrado: ${v.cliente} te pagó ${fmtMoney(monto)} de la venta del ${fmtDate(v.fecha)}.${queda > 0 ? ' Todavía debe ' + fmtMoney(queda) + '.' : ' Quedó al día 👌'}`, deshacer: { k: 'cobro', id: c.id } };
   }
   if (['gasto', 'inversion', 'ingreso'].includes(r.tipo)) {
     const cat = r.tipo === 'gasto' ? categoriaGasto(r.texto) : CATS[r.tipo][r.tipo === 'inversion' ? 4 : 0];
@@ -304,7 +306,7 @@ function deshacer(d) {
   else if (d.k === 'stock') { moverStock(d.items, -d.signo, 'Corrección (se deshizo un mensaje)'); if (d.inv) state.movimientos = state.movimientos.filter((x) => x.id !== d.inv); }
   else if (d.k === 'muestra') { const mu = state.muestras.find((x) => x.id === d.id); if (mu && mu.estado === 'afuera') moverStock(mu.items, 1, 'Corrección (se deshizo un mensaje)', mu.id); state.muestras = state.muestras.filter((x) => x.id !== d.id); }
   else if (d.k === 'muestraVuelta') { const mu = state.muestras.find((x) => x.id === d.id); if (mu) { moverStock(mu.items, -1, 'Corrección (se deshizo un mensaje)', mu.id); mu.estado = 'afuera'; delete mu.fechaCierre; } }
-  else if (d.k === 'cobro') { const v = state.ventas.find((x) => x.id === d.id); if (v) { v.cobrado = false; delete v.fechaCobro; registrar('Cobro deshecho', `${v.cliente || 'Sin nombre'} · ${fmtMoney(v.total)}`, 'Cobrada', 'Me debe'); } }
+  else if (d.k === 'cobro') anularCobro(d.id, 'Se deshizo el mensaje');
   else if (d.k === 'mov') state.movimientos = state.movimientos.filter((x) => x.id !== d.id);
   else if (d.k === 'evento') state.eventos = state.eventos.filter((x) => x.id !== d.id);
   else if (d.k === 'precio') d.prev.forEach((x) => { const p = prod(x.id); if (p) { if ((p.precio || 0) !== x.precio) registrar('Cambio de precio', p.nombre + ' (se deshizo el mensaje)', fmtMoney(p.precio || 0), fmtMoney(x.precio)); if ((p.costo || 0) !== x.costo) registrar('Cambio de costo', p.nombre + ' (se deshizo el mensaje)', fmtMoney(p.costo || 0), fmtMoney(x.costo)); p.costo = x.costo; p.precio = x.precio; } });
@@ -329,7 +331,7 @@ function responderConsulta(r) {
     if (!ps.length) return 'Todavía no hay artículos cargados.';
     return ps.map((p) => ts.length ? `${p.nombre}: ` + ts.map((x) => `${tl(x) ? 'talle ' + x + ' → ' : ''}${stockT(p, x)} unidades`).join(', ') : `${p.nombre} (${stockTotal(p)} unidades)` + (sinTalle(p) ? '' : ': ' + (tallesDe(p).filter((x) => stockT(p, x)).map((x) => `${x}(${stockT(p, x)})`).join(' ') || 'sin stock'))).join('\n');
   }
-  if (/deb|deuda/.test(t)) { const d = meDeben(); return d.length ? 'Te deben:\n' + d.map((v) => `• ${v.cliente || 'Sin nombre'}: ${fmtMoney(v.total)} (desde el ${fmtDate(v.fecha)})`).join('\n') + `\nTotal: ${fmtMoney(d.reduce((s, v) => s + (+v.total || 0), 0))}` : 'Nadie te debe plata 👌'; }
+  if (/deb|deuda/.test(t)) { const d = deudores(); return d.length ? 'Te deben:\n' + d.map((a) => `• ${a.nombre}: ${fmtMoney(a.debe)}`).join('\n') + `\nTotal: ${fmtMoney(debeTotal())}` : 'Nadie te debe plata 👌'; }
   if (/muestra/.test(t)) { const a = muestrasAfuera(); return a.length ? 'Muestras afuera:\n' + a.map((m) => `• ${m.cliente}: ${resumenItems(m.items)} (${hace(daysBetween(m.fecha, hoy))})`).join('\n') : 'No hay muestras afuera.'; }
   if (/vend|venta|facture|gan/.test(t)) {
     const semana = /semana/.test(t), mesQ = /mes/.test(t) || /gan/.test(t);
@@ -349,7 +351,7 @@ function responderConsulta(r) {
 const EJEMPLOS = '🛒 Ventas: "vendí 2 bolt 42 a Juan 85000" · "vendí 3 remeras M y 2 gorras a Pedro" · "Juan me pagó"\n📝 Presupuestos: "presupuesto para Constructora Andes: 10 bolt 42 y 20 remeras L"\n📥 Stock: "entraron 10 xr 40 y 5 xr 41" · "salieron 2 bolt 41 rotos" · "conté 6 bolt 42"\n🏷️ Artículos y precios: "bolt costo 30000 precio 55000" · "nuevo artículo Remera azul precio 15000"\n📦 Muestras: "dejé muestra high boots 43 a Constructora Andes" · "busqué la muestra de Andes"\n🤝 Préstamos: "le presté una campera a Pedro hasta el viernes" · "Pedro me devolvió la campera"\n🧾 Facturas: "factura de Ringo 500000 vence el 30" · "pagué la factura de Ringo" · el 📎 guarda la foto\n💸 Plata: "gasté 20000 de nafta" · "invertí 100000 en estanterías"\n📅 Calendario: "el lunes a las 10 entregar a obra Pérez en rojo" · "listo la entrega de Pérez"\n❓ Preguntas: "¿cuánto hay de bolt?" · "¿cuánto vendí este mes?" · "¿qué debo?" · "¿quién me debe?" · "¿qué presté?"';
 const AYUDA = 'No entendí bien 🤔. Podés escribirme cosas así:\n' + EJEMPLOS + '\nO elegí qué querés cargar:';
 const ELEGIR = { // cuando hay que elegir sobre cuál registro actuar
-  cobro: { key: 'ventaId', lista: () => meDeben(), get: (id) => state.ventas.find((x) => x.id === id), nom: (x) => x.cliente, lbl: (x) => `${x.cliente || 'Sin nombre'} · ${fmtMoney(x.total)}`, q: '¿Cuál te pagaron?', nada: 'No hay ventas a cuenta pendientes de cobro.' },
+  cobro: { key: 'ventaId', lista: () => meDeben(), get: (id) => state.ventas.find((x) => x.id === id), nom: (x) => x.cliente, lbl: (x) => `${x.cliente || 'Sin nombre'} · ${fmtDateC(x.fecha)} · debe ${fmtMoney(pendiente(x))}`, q: '¿Cuál te pagaron?', nada: 'No hay ventas a cuenta pendientes de cobro.' },
   muestraVuelta: { key: 'muestraId', lista: () => muestrasAfuera(), get: (id) => state.muestras.find((x) => x.id === id), nom: (x) => x.cliente, lbl: (x) => `${x.cliente || 'Sin nombre'} · ${resumenItems(x.items, 1)}`, q: '¿Cuál muestra volvió?', nada: 'No hay muestras afuera.' },
   prestamoVuelta: { key: 'eventoId', lista: () => state.eventos.filter((e) => e.tipo === 'prestamo' && !e.hecho), get: (id) => state.eventos.find((x) => x.id === id), nom: (x) => (x.quien || '') + ' ' + x.titulo, lbl: (x) => `${x.quien || 'Sin nombre'} · ${x.titulo}`, q: '¿Qué te devolvieron?', nada: 'No tenés nada prestado.' },
   eventoHecho: { key: 'eventoId', lista: () => state.eventos.filter((e) => e.tipo !== 'prestamo' && !e.hecho).sort((a, b) => a.fecha.localeCompare(b.fecha)), get: (id) => state.eventos.find((x) => x.id === id), nom: (x) => x.titulo, lbl: (x) => `${fmtDateC(x.fecha)} · ${x.titulo}`, q: '¿Qué es lo que ya hiciste?', nada: 'No hay nada pendiente en el calendario.' },

@@ -233,6 +233,8 @@ body.login #nav{display:none}
 @media print{.hoja{min-width:0;font-size:12pt}.hoja-tabla th{-webkit-print-color-adjust:exact;print-color-adjust:exact}.hoja-cli{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 .hoja-firma{display:grid;grid-template-columns:2fr 2fr 1fr 1fr;gap:18px;margin-top:56px}.hoja-firma div{border-top:1px solid #333;padding-top:4px;font-size:11px;color:#444;text-align:center}
 /* Ventas anuladas: quedan a la vista pero tachadas */
-tr.anulada td{color:var(--muted);text-decoration:line-through}tr.anulada td:nth-child(4){text-decoration:none}
+tr.anulada td{color:var(--muted);text-decoration:line-through}tr.anulada td:nth-child(5){text-decoration:none}
 .anulada-box{background:var(--outbg);color:var(--out);padding:10px 12px;border-radius:10px;font-weight:600}
 .li .s .saldo{min-width:62px}
+/* Columnas que sobran en el celular */
+@media (max-width:760px){th.opt,td.opt{display:none}}
