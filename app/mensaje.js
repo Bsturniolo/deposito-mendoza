@@ -212,7 +212,7 @@ function ejecutar(r) { // devuelve {txt, deshacer}
   const id = uid();
   if (r.tipo === 'precio') {
     const pr = leerPrecios(r.texto), ids = [...new Set(r.items.map((i) => i.productoId))], prev = [];
-    ids.forEach((pid) => { const p = prod(pid); prev.push({ id: pid, costo: p.costo || 0, precio: p.precio || 0 }); if (pr.costo) p.costo = pr.costo; if (pr.precio) p.precio = pr.precio; });
+    ids.forEach((pid) => { const p = prod(pid); prev.push({ id: pid, costo: p.costo || 0, precio: p.precio || 0 }); if (pr.costo && pr.costo !== (p.costo || 0)) { registrar('Cambio de costo', p.nombre, fmtMoney(p.costo || 0), fmtMoney(pr.costo)); p.costo = pr.costo; } if (pr.precio && pr.precio !== (p.precio || 0)) { registrar('Cambio de precio', p.nombre, fmtMoney(p.precio || 0), fmtMoney(pr.precio)); p.precio = pr.precio; } });
     return { txt: '✅ Precios guardados.\n' + ids.map((pid) => { const p = prod(pid); return `${p.nombre}: costo ${p.costo ? fmtMoney(p.costo) : 'sin cargar'} · precio de venta ${p.precio ? fmtMoney(p.precio) : 'sin cargar'}${p.costo && p.precio ? ` · ganás ${fmtMoney(p.precio - p.costo)} por unidad` : ''}`; }).join('\n'), deshacer: { k: 'precio', prev } };
   }
   if (r.tipo === 'presupuesto') {
@@ -257,7 +257,7 @@ function ejecutar(r) { // devuelve {txt, deshacer}
   if (r.tipo === 'venta') {
     const items = precioItems(r).map((i) => Object.assign(i, { costo: Number((prod(i.productoId) || {}).costo) || 0 }));
     const pago = r.pago || 'Efectivo';
-    const v = { id, fecha: r.fecha, hora: new Date().toTimeString().slice(0, 5), cliente: r.cliente, telefono: '', pago, cobrado: pago !== 'Cuenta corriente', items, total: r.monto && !r.montoUnit ? r.monto : items.reduce((s, i) => s + i.cant * i.precio, 0), nota: r.texto, origen: 'chat' };
+    const v = { id, fecha: r.fecha, hora: new Date().toTimeString().slice(0, 5), quien: quienSoy(), cliente: r.cliente, telefono: '', pago, cobrado: pago !== 'Cuenta corriente', items, total: r.monto && !r.montoUnit ? r.monto : items.reduce((s, i) => s + i.cant * i.precio, 0), nota: r.texto, origen: 'chat' };
     moverStock(items, -1, 'Venta' + (v.cliente ? ' a ' + v.cliente : ''), id, v.fecha); state.ventas.push(v);
     const neg = items.filter((i) => stockT(prod(i.productoId), i.talle) < 0);
     return { txt: `✅ Venta cargada: ${detalle(items)}${v.cliente ? ' a ' + v.cliente : ''} · ${fmtMoney(v.total)} · ${pago === 'Cuenta corriente' ? 'te queda debiendo' : pago.toLowerCase()}${neg.length ? `\n⚠️ Ojo: según la app no había stock de ${detalle(neg)}. Revisá el stock.` : ''}`, deshacer: { k: 'venta', id } };
@@ -279,7 +279,7 @@ function ejecutar(r) { // devuelve {txt, deshacer}
     return { txt: `✅ Listo, la muestra de ${mu.cliente} volvió. ${detalle(mu.items)} de nuevo en el stock.`, deshacer: { k: 'muestraVuelta', id: mu.id } };
   }
   if (r.tipo === 'cobro') {
-    const v = state.ventas.find((x) => x.id === r.ventaId); v.cobrado = true; v.fechaCobro = r.fecha;
+    const v = state.ventas.find((x) => x.id === r.ventaId); v.cobrado = true; v.fechaCobro = r.fecha; registrar('Cobro', `${v.cliente || 'Sin nombre'} pagó ${fmtMoney(v.total)} (venta del ${fmtDate(v.fecha)})`, 'Me debe', 'Cobrada');
     return { txt: `✅ Cobrado: ${v.cliente} te pagó ${fmtMoney(v.total)} de la venta del ${fmtDate(v.fecha)}.`, deshacer: { k: 'cobro', id: v.id } };
   }
   if (['gasto', 'inversion', 'ingreso'].includes(r.tipo)) {
@@ -300,14 +300,14 @@ function ejecutar(r) { // devuelve {txt, deshacer}
 }
 function deshacer(d) {
   if (!d) return;
-  if (d.k === 'venta') anularVenta(d.id);
+  if (d.k === 'venta') anularVenta(d.id, 'Se deshizo el mensaje');
   else if (d.k === 'stock') { moverStock(d.items, -d.signo, 'Corrección (se deshizo un mensaje)'); if (d.inv) state.movimientos = state.movimientos.filter((x) => x.id !== d.inv); }
   else if (d.k === 'muestra') { const mu = state.muestras.find((x) => x.id === d.id); if (mu && mu.estado === 'afuera') moverStock(mu.items, 1, 'Corrección (se deshizo un mensaje)', mu.id); state.muestras = state.muestras.filter((x) => x.id !== d.id); }
   else if (d.k === 'muestraVuelta') { const mu = state.muestras.find((x) => x.id === d.id); if (mu) { moverStock(mu.items, -1, 'Corrección (se deshizo un mensaje)', mu.id); mu.estado = 'afuera'; delete mu.fechaCierre; } }
-  else if (d.k === 'cobro') { const v = state.ventas.find((x) => x.id === d.id); if (v) { v.cobrado = false; delete v.fechaCobro; } }
+  else if (d.k === 'cobro') { const v = state.ventas.find((x) => x.id === d.id); if (v) { v.cobrado = false; delete v.fechaCobro; registrar('Cobro deshecho', `${v.cliente || 'Sin nombre'} · ${fmtMoney(v.total)}`, 'Cobrada', 'Me debe'); } }
   else if (d.k === 'mov') state.movimientos = state.movimientos.filter((x) => x.id !== d.id);
   else if (d.k === 'evento') state.eventos = state.eventos.filter((x) => x.id !== d.id);
-  else if (d.k === 'precio') d.prev.forEach((x) => { const p = prod(x.id); if (p) { p.costo = x.costo; p.precio = x.precio; } });
+  else if (d.k === 'precio') d.prev.forEach((x) => { const p = prod(x.id); if (p) { if ((p.precio || 0) !== x.precio) registrar('Cambio de precio', p.nombre + ' (se deshizo el mensaje)', fmtMoney(p.precio || 0), fmtMoney(x.precio)); if ((p.costo || 0) !== x.costo) registrar('Cambio de costo', p.nombre + ' (se deshizo el mensaje)', fmtMoney(p.costo || 0), fmtMoney(x.costo)); p.costo = x.costo; p.precio = x.precio; } });
   else if (d.k === 'presupuesto') state.presupuestos = state.presupuestos.filter((x) => x.id !== d.id);
   else if (d.k === 'modelo') state.productos = state.productos.filter((x) => x.id !== d.id);
   else if (d.k === 'eventoHecho') { const e = state.eventos.find((x) => x.id === d.id); if (e) e.hecho = false; }
@@ -334,7 +334,7 @@ function responderConsulta(r) {
   if (/vend|venta|facture|gan/.test(t)) {
     const semana = /semana/.test(t), mesQ = /mes/.test(t) || /gan/.test(t);
     const desde = semana ? addDays(hoy, -6) : mesQ ? hoy.slice(0, 8) + '01' : r.fecha;
-    const vs = state.ventas.filter((v) => v.fecha >= desde && v.fecha <= hoy);
+    const vs = ventasOk().filter((v) => v.fecha >= desde && v.fecha <= hoy);
     const tot = vs.reduce((s, v) => s + (+v.total || 0), 0);
     const per = semana ? 'en los últimos 7 días' : mesQ ? 'en ' + MESES[+hoy.slice(5, 7) - 1].toLowerCase() : r.fecha === hoy ? 'hoy' : 'el ' + fmtDate(r.fecha);
     let s = `Vendiste ${fmtMoney(tot)} ${per} (${vs.length} ventas, ${pares(vs.flatMap((v) => v.items))} unidades).`;

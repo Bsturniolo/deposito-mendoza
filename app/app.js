@@ -62,9 +62,9 @@ const MOTIVOS = {
 const EMPTY = () => ({
   version: 1,
   config: { negocio: 'Depósito Mendoza S.A.S.', telefono: '261 5734936', talles: '35-45', diasMuestra: 7, avisoDias: 3, ultimoRespaldo: null, cuit: '', direccion: '', email: '', iva: '', presuNota: '' },
-  productos: [], stockMovs: [], ventas: [], compras: [], muestras: [], movimientos: [], eventos: [], chat: [], archivos: [], presupuestos: [],
+  productos: [], stockMovs: [], ventas: [], compras: [], muestras: [], movimientos: [], eventos: [], chat: [], archivos: [], presupuestos: [], registro: [],
 });
-const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat', 'archivos', 'presupuestos'];
+const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat', 'archivos', 'presupuestos', 'registro'];
 let state = EMPTY();
 
 // ---------- Talles: cada artículo tiene los suyos ----------
@@ -131,6 +131,15 @@ async function save() {
 function commit() { save(); render(); }
 
 const prod = (id) => state.productos.find((p) => p.id === id);
+// Las ventas anuladas no se borran: quedan guardadas con anulada:true y no cuentan en totales.
+const ventasOk = () => state.ventas.filter((v) => !v.anulada);
+
+// ---------- Registro de cambios: quién cambió qué, con el valor de antes y el de después ----------
+const quienSoy = () => (typeof cloud !== 'undefined' && cloud.email) || 'este dispositivo';
+const nombreDe = (q) => (state.config.nombres || {})[q] || String(q || '').split('@')[0];
+function registrar(que, detalle, antes, despues) {
+  state.registro.push({ id: uid(), fecha: todayStr(), hora: new Date().toTimeString().slice(0, 5), quien: quienSoy(), que, detalle: detalle || '', antes: antes == null ? '' : String(antes), despues: despues == null ? '' : String(despues) });
+}
 const prodNombre = (id, fallback) => { const p = prod(id); return p ? p.nombre : (fallback || 'Modelo borrado'); };
 
 // ---------- Nube (Firebase) — misma lógica que Gestión del Negocio, con datos compartidos ----------
@@ -237,7 +246,7 @@ function moverStock(items, signo, motivo, ref, fecha) {
     const p = prod(it.productoId); if (!p) continue;
     p.talles = p.talles || {};
     p.talles[it.talle] = stockT(p, it.talle) + signo * (Number(it.cant) || 0);
-    state.stockMovs.push({ id: uid(), fecha: fecha || todayStr(), productoId: p.id, nombre: p.nombre, talle: it.talle, cant: signo * (Number(it.cant) || 0), motivo, ref: ref || '' });
+    state.stockMovs.push({ id: uid(), fecha: fecha || todayStr(), productoId: p.id, nombre: p.nombre, talle: it.talle, cant: signo * (Number(it.cant) || 0), motivo, ref: ref || '', quien: quienSoy() });
   }
 }
 // Mercadería que entra sin factura: cuenta como inversión (unidades × costo del artículo)
@@ -259,7 +268,7 @@ const stockBajo = () => state.productos.filter((p) => !p.archivado).flatMap((p) 
 // ---------- Cálculos de plata ----------
 const enMes = (f, m) => (f || '').startsWith(m);
 function resumenMes(m) {
-  const ventas = state.ventas.filter((v) => enMes(v.fecha, m));
+  const ventas = ventasOk().filter((v) => enMes(v.fecha, m));
   const vendido = ventas.reduce((s, v) => s + (Number(v.total) || 0), 0);
   const cmv = ventas.reduce((s, v) => s + (v.items || []).reduce((a, i) => a + (Number(i.cant) || 0) * (Number(i.costo) || 0), 0), 0);
   const movs = state.movimientos.filter((x) => enMes(x.fecha, m));
@@ -268,12 +277,12 @@ function resumenMes(m) {
   const facGasto = pagadas.filter((c) => c.clase === 'gasto').reduce((s, c) => s + (Number(c.total) || 0), 0);
   const gastos = sumT('gasto') + facGasto, inversionMovs = sumT('inversion'), otrosIng = sumT('ingreso');
   const comprasPagadas = pagadas.filter((c) => c.clase !== 'gasto').reduce((s, c) => s + (Number(c.total) || 0), 0);
-  const cobrado = state.ventas.filter((v) => v.pago !== 'Cuenta corriente' ? enMes(v.fecha, m) : (v.cobrado && enMes(v.fechaCobro, m))).reduce((s, v) => s + (Number(v.total) || 0), 0);
+  const cobrado = ventasOk().filter((v) => v.pago !== 'Cuenta corriente' ? enMes(v.fecha, m) : (v.cobrado && enMes(v.fechaCobro, m))).reduce((s, v) => s + (Number(v.total) || 0), 0);
   const bruta = vendido - cmv, neta = bruta - gastos + otrosIng;
   const entro = cobrado + otrosIng, salio = gastos + inversionMovs + comprasPagadas;
   return { ventas, vendido, cmv, bruta, gastos, inversion: inversionMovs + comprasPagadas, comprasPagadas, otrosIng, neta, entro, salio, movs };
 }
-const meDeben = () => state.ventas.filter((v) => v.pago === 'Cuenta corriente' && !v.cobrado);
+const meDeben = () => ventasOk().filter((v) => v.pago === 'Cuenta corriente' && !v.cobrado);
 const debo = () => state.compras.filter((c) => !c.pagada);
 const valorStock = () => state.productos.reduce((s, p) => s + Math.max(0, stockTotal(p)) * (Number(p.costo) || 0), 0);
 const muestrasAfuera = () => state.muestras.filter((m) => m.estado === 'afuera');

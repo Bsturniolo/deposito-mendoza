@@ -1,6 +1,6 @@
 // Service worker: guarda la app para que abra sin internet.
 // Siempre pide primero la versión nueva; si no hay internet, usa la copia guardada.
-const CACHE = 'deposito-1.2.4';
+const CACHE = 'deposito-1.3.0';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', (e) => {
