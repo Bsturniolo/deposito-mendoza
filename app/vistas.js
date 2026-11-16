@@ -66,7 +66,8 @@ VISTAS.stock = () => {
   const todos = state.productos.filter((p) => !p.archivado);
   const cats = [...new Set(todos.map(catDe))].sort((a, b) => a.localeCompare(b, 'es'));
   if (ui.stockCat !== 'todas' && !cats.includes(ui.stockCat)) ui.stockCat = 'todas';
-  const ps = todos.filter((p) => (ui.stockCat === 'todas' || catDe(p) === ui.stockCat) && (!q || [p.codigo, p.nombre, p.descripcion, p.marca, p.color, catDe(p), p.alias].join(' ').toLowerCase().includes(q)))
+  const conStock = todos.filter((p) => stockTotal(p) > 0).length;
+  const ps = todos.filter((p) => (ui.stockVer === 'todo' || (ui.stockVer === 'con' ? stockTotal(p) > 0 : stockTotal(p) <= 0)) && (ui.stockCat === 'todas' || catDe(p) === ui.stockCat) && (!q || [p.codigo, p.nombre, p.descripcion, p.marca, p.color, catDe(p), p.alias].join(' ').toLowerCase().includes(q)))
     .sort((a, b) => catDe(a).localeCompare(catDe(b), 'es') || a.nombre.localeCompare(b.nombre, 'es'));
   const tot = ps.reduce((s, p) => s + stockTotal(p), 0);
   const potencial = todos.reduce((s, p) => s + Math.max(0, stockTotal(p)) * ((Number(p.precio) || 0) - (Number(p.costo) || 0)), 0);
@@ -78,6 +79,10 @@ VISTAS.stock = () => {
   const tabla = (g) => { const un = g.ts.length === 1; const titulo = [...new Set(g.ps.map(catDe))].join(' · ');
     return `<h3 class="mt">${esc(titulo)} <span class="small muted">(${g.ps.length})</span></h3><div class="tablewrap"><table class="sg"><thead><tr><th class="mod">Artículo</th>${g.ts.map((t) => `<th>${un ? 'Stock' : esc(t)}</th>`).join('')}${un ? '' : '<th>Total</th>'}</tr></thead><tbody>${g.ps.map((p) => fila(p, g.ts)).join('')}</tbody>
     ${g.ps.length > 1 ? `<tfoot><tr><td class="mod b">Total</td>${g.ts.map((t) => `<td class="b">${g.ps.reduce((s, p) => s + stockT(p, t), 0)}</td>`).join('')}${un ? '' : `<td class="tot">${g.ps.reduce((s, p) => s + stockTotal(p), 0)}</td>`}</tr></tfoot>` : ''}</table></div>`; };
+  // lista simple de lo que hay en stock: un renglón por artículo
+  const lista = () => `<div class="tablewrap mt"><table><thead><tr><th>N°</th><th>Artículo</th><th>Qué es</th><th>Qué hay</th><th class="n">Unidades</th><th class="n">Precio</th></tr></thead><tbody>
+    ${ps.slice().sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map((p) => `<tr class="click" data-act="prodVer" data-id="${p.id}"><td>${esc(p.codigo || '')}</td><td><b>${esc(p.nombre)}</b>${p.color ? ' <span class="small muted">' + esc(p.color) + '</span>' : ''}</td><td>${esc(catDe(p))}</td><td>${sinTalle(p) ? '' : esc(tallesDe(p).filter((t) => stockT(p, t) > 0).map((t) => `${t} (${stockT(p, t)})`).join(' · '))}</td><td class="n b">${stockTotal(p)}</td><td class="n">${p.precio ? fmtMoney(p.precio) : '—'}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td colspan="4" class="b">Total</td><td class="n b">${fmtNum(tot)}</td><td></td></tr></tfoot></table></div>`;
   return `<div class="spread"><div><h1>Artículos</h1><p class="sub">Todo lo que vendés: calzado, ropa, gorras y lo que sea, con su número, precio y stock. Tocá un artículo para ver el detalle.</p></div>
     <div class="row"><button class="pri" data-act="entradaNueva">📥 Entró</button><button data-act="salidaNueva">📤 Salió</button><button data-act="prodNuevo">+ Artículo</button></div></div>
   <div class="grid kpis"><div class="card kpi"><div class="lbl">Artículos</div><div class="val">${todos.length}</div><div class="hint">${fmtNum(todos.reduce((s, p) => s + stockTotal(p), 0))} unidades en stock</div></div>
@@ -85,10 +90,11 @@ VISTAS.stock = () => {
     <div class="card kpi"><div class="lbl">Ganancia si vendés todo</div><div class="val c-in">${fmtMoney(potencial)}</div><div class="hint">precio − costo de cada unidad</div></div>
     <div class="card kpi"><div class="lbl">Talles sin stock</div><div class="val ${bajo.some((x) => x.n <= 0) ? 'c-out' : ''}">${bajo.filter((x) => x.n <= 0).length}</div><div class="hint">${bajo.filter((x) => x.n > 0).length} con poco stock</div></div></div>
   ${sinPrecio.length ? `<div class="card alerta mt"><b>Faltan precios:</b> ${sinPrecio.slice(0, 12).map((p) => `<button class="sm" data-act="prodEditar" data-id="${p.id}">${esc(p.nombre)}</button>`).join(' ')}${sinPrecio.length > 12 ? ` y ${sinPrecio.length - 12} más` : ''} <span class="small muted">Poné el costo y el precio de venta de cada artículo para que la app saque la inversión y la ganancia.</span></div>` : ''}
+  <div class="tabs mt"><button class="${ui.stockVer === 'todo' ? 'on' : ''}" data-act="stockVer" data-id="todo">Todos los artículos (${todos.length})</button><button class="${ui.stockVer === 'con' ? 'on' : ''}" data-act="stockVer" data-id="con">📦 Lo que hay en stock (${conStock})</button><button class="${ui.stockVer === 'sin' ? 'on' : ''}" data-act="stockVer" data-id="sin">Sin stock (${todos.length - conStock})</button></div>
   ${cats.length > 1 ? `<div class="tabs mt"><button class="${ui.stockCat === 'todas' ? 'on' : ''}" data-act="stockCat" data-id="todas">Todo</button>${cats.map((c) => `<button class="${ui.stockCat === c ? 'on' : ''}" data-act="stockCat" data-id="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
   <div class="row mt" style="margin-bottom:10px"><input id="stockQ" class="search" type="search" placeholder="Buscar por nombre o número de artículo…" value="${esc(ui.stockQ)}"><a class="btn wa" href="${waLink('', textoStock())}" target="_blank" rel="noopener">💬 Pasar stock por WhatsApp</a></div>
-  ${ps.length ? grupos.map(tabla).join('') + `<p class="small muted mt">Mostrando ${ps.length} artículos · ${fmtNum(tot)} unidades. <span class="pill out">rojo</span> sin stock · <span class="pill warn">naranja</span> quedan pocos (menos del mínimo que pusiste en el artículo)</p>`
-    : `<div class="empty">${todos.length ? 'Ningún artículo coincide con la búsqueda.' : 'Todavía no cargaste artículos. Tocá <b>+ Artículo</b>.'}</div>`}`;
+  ${ps.length ? (ui.stockVer === 'con' ? lista() : grupos.map(tabla).join('')) + `<p class="small muted mt">Mostrando ${ps.length} artículos · ${fmtNum(tot)} unidades. <span class="pill out">rojo</span> sin stock · <span class="pill warn">naranja</span> quedan pocos (menos del mínimo que pusiste en el artículo)</p>`
+    : `<div class="empty">${todos.length ? (ui.stockVer === 'con' ? 'No hay artículos con stock' : ui.stockVer === 'sin' ? 'No hay artículos sin stock' : 'Ningún artículo coincide') + (q || ui.stockCat !== 'todas' ? ' con ese filtro.' : '.') : 'Todavía no cargaste artículos. Tocá <b>+ Artículo</b>.'}</div>`}`;
 };
 function numerosModelo(p) {
   const its = state.ventas.flatMap((v) => v.items).filter((i) => i.productoId === p.id);
@@ -582,7 +588,7 @@ VISTAS.mas = () => {
 Object.assign(ACTS, {
   ventaNueva: () => ventaForm(), ventaVer: (id) => ventaVer(id),
   entradaNueva: () => movStockForm('entrada'), salidaNueva: () => movStockForm('salida'),
-  prodNuevo: () => prodForm(null), stockCat: (id) => { ui.stockCat = id; render(); }, prodVer: (id) => prodVer(id), prodEditar: (id) => prodForm(id),
+  prodNuevo: () => prodForm(null), stockCat: (id) => { ui.stockCat = id; render(); }, stockVer: (id) => { ui.stockVer = id; render(); }, prodVer: (id) => prodVer(id), prodEditar: (id) => prodForm(id),
   compraNueva: () => compraForm(null), facturaArchivo: () => elegirArchivo((a) => compraForm(null, { archivo: a, clase: 'otra' })), compraVer: (id) => compraVer(id),
   muestraNueva: () => muestraForm(), muestraVolvio: (id) => muestraVolvio(id),
   muestraVendida: (id) => { const m = state.muestras.find((x) => x.id === id); if (m) ventaForm({ cliente: m.cliente, telefono: m.telefono, items: m.items.map((i) => Object.assign({}, i, { precio: (prod(i.productoId) || {}).precio || '' })), desdeMuestra: m.id }); },

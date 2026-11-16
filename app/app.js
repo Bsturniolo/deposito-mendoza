@@ -274,7 +274,7 @@ const muestrasAfuera = () => state.muestras.filter((m) => m.estado === 'afuera')
 
 // ---------- Navegación ----------
 let view = 'inicio';
-const ui = { stockQ: '', ventasMes: todayStr().slice(0, 7), ventasTab: 'todas', comprasTab: 'todas', muestrasTab: 'afuera', plataMes: todayStr().slice(0, 7), balMes: todayStr().slice(0, 7), calMes: todayStr().slice(0, 7), calSel: todayStr(), msg: '', msgRes: null, stockCat: 'todas', presuTab: 'todos' };
+const ui = { stockQ: '', ventasMes: todayStr().slice(0, 7), ventasTab: 'todas', comprasTab: 'todas', muestrasTab: 'afuera', plataMes: todayStr().slice(0, 7), balMes: todayStr().slice(0, 7), calMes: todayStr().slice(0, 7), calSel: todayStr(), msg: '', msgRes: null, stockCat: 'todas', stockVer: 'todo', presuTab: 'todos' };
 $('#nav').addEventListener('click', (e) => { const a = e.target.closest('a[data-view]'); if (a) go(a.dataset.view); });
 const NAV_SEC = ['muestras', 'compras', 'calendario', 'plata', 'balance', 'ajustes', 'mas'];
 function go(v) {
