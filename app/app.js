@@ -87,6 +87,12 @@ function tallesDe(p) {
 }
 const sinTalle = (p) => { const t = tallesDe(p); return t.length === 1 && t[0] === TU; };
 const tl = (t) => t && t !== TU ? t : '';
+function artOptions(sel) { // <option> de artículos, agrupados por categoría
+  const ps = state.productos.filter((p) => !p.archivado).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const cats = [...new Set(ps.map(catDe))].sort((a, b) => a.localeCompare(b, 'es'));
+  const op = (x) => `<option value="${x.id}" ${x.id === sel ? 'selected' : ''}>${esc(artLbl(x))}</option>`;
+  return cats.length > 1 ? cats.map((c) => `<optgroup label="${esc(c)}">${ps.filter((p) => catDe(p) === c).map(op).join('')}</optgroup>`).join('') : ps.map(op).join('');
+}
 const artLbl = (p) => (p.codigo ? p.codigo + ' · ' : '') + p.nombre + (p.color ? ' · ' + p.color : '');
 function talles() { // todos los talles que se usan en algún artículo
   const out = parseTalles(state.config.talles || '35-45');
@@ -340,7 +346,7 @@ function lineasHTML(lines, opts) {
   return lines.map((l, i) => {
     const p = prod(l.productoId);
     return `<div class="linea" data-i="${i}">
-      <div class="row"><select data-l="prod" style="flex:1 1 200px"><option value="">— Elegí el artículo —</option>${ps.map((x) => `<option value="${x.id}" ${x.id === l.productoId ? 'selected' : ''}>${esc(artLbl(x))}</option>`).join('')}</select>
+      <div class="row"><select data-l="prod" style="flex:1 1 200px"><option value="">— Elegí el artículo —</option>${artOptions(l.productoId)}</select>
       ${opts.precio ? `<label class="f" style="flex:0 1 150px">${opts.precio}<input data-l="precio" inputmode="decimal" value="${l.precio ? esc(l.precio) : ''}" placeholder="$"></label>` : ''}
       ${lines.length > 1 ? `<button type="button" class="sm danger" data-l="del" title="Quitar">✕</button>` : ''}</div>
       ${p ? `<div class="curva">${tallesDe(p).map((t) => { const n = Number((l.cant || {})[t]) || 0, s = stockT(p, t); return `<label>${t === TU ? 'Cantidad' : esc(t)}<input data-l="cant" data-t="${esc(t)}" inputmode="numeric" value="${n || ''}" class="${n ? 'has' : ''}" aria-label="Talle ${t}">${opts.verStock ? `<small class="${s <= 0 ? 'z' : ''}">hay ${s}</small>` : ''}</label>`; }).join('')}</div>` : '<div class="small muted">Elegí el artículo y después poné cuántas unidades de cada talle.</div>'}
