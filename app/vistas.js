@@ -7,7 +7,7 @@ const claveNombre = () => cloud.email || 'este-dispositivo';
 const miNombre = () => (state.config.nombres || {})[claveNombre()] || 'Federico';
 VISTAS.inicio = () => {
   const hoy = todayStr(), mes = hoy.slice(0, 7), r = resumenMes(mes);
-  const vh = state.ventas.filter((v) => v.fecha === hoy);
+  const vh = ventasOk().filter((v) => v.fecha === hoy);
   const h = new Date().getHours(), saludo = (h < 13 ? 'Buenos días' : h < 20 ? 'Buenas tardes' : 'Buenas noches') + ', ' + miNombre();
   const dm = state.config.diasMuestra || 7;
   const mAf = muestrasAfuera().map((m) => ({ m, d: daysBetween(m.fecha, hoy) })).sort((a, b) => b.d - a.d);
@@ -97,7 +97,7 @@ VISTAS.stock = () => {
     : `<div class="empty">${todos.length ? (ui.stockVer === 'con' ? 'No hay artículos con stock' : ui.stockVer === 'sin' ? 'No hay artículos sin stock' : 'Ningún artículo coincide') + (q || ui.stockCat !== 'todas' ? ' con ese filtro.' : '.') : 'Todavía no cargaste artículos. Tocá <b>+ Artículo</b>.'}</div>`}`;
 };
 function numerosModelo(p) {
-  const its = state.ventas.flatMap((v) => v.items).filter((i) => i.productoId === p.id);
+  const its = ventasOk().flatMap((v) => v.items).filter((i) => i.productoId === p.id);
   const vendidos = its.reduce((s, i) => s + i.cant, 0), vendido = its.reduce((s, i) => s + i.cant * i.precio, 0);
   const ganancia = its.reduce((s, i) => s + i.cant * (i.precio - (i.costo || 0)), 0);
   const comp = state.compras.flatMap((c) => c.items).filter((i) => i.productoId === p.id);
@@ -111,9 +111,20 @@ function textoStock() {
   const lines = state.productos.filter((p) => !p.archivado && stockTotal(p) > 0).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map((p) => `*${p.nombre}*: ` + (sinTalle(p) ? stockTotal(p) + ' unidades' : tallesDe(p).filter((t) => stockT(p, t) > 0).map((t) => `${t}(${stockT(p, t)})`).join(' ')));
   return `Stock Depósito Mendoza al ${fmtDate(todayStr())}\n` + (lines.join('\n') || 'Sin stock cargado');
 }
-function prodVer(id) {
+// Historial de un artículo con el saldo que quedó en ese talle después de cada movimiento.
+// El saldo se calcula para atrás desde el stock de hoy, así siempre coincide con lo que hay.
+function historialStock(p) {
+  const movs = state.stockMovs.filter((m) => m.productoId === p.id).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const run = {}, out = [];
+  for (let k = movs.length - 1; k >= 0; k--) {
+    const m = movs[k]; if (!(m.talle in run)) run[m.talle] = stockT(p, m.talle);
+    out.push({ m, saldo: run[m.talle] }); run[m.talle] -= Number(m.cant) || 0;
+  }
+  return out; // del más nuevo al más viejo
+}
+function prodVer(id, todo) {
   const p = prod(id); if (!p) return;
-  const movs = state.stockMovs.filter((m) => m.productoId === id).slice(-15).reverse();
+  const hist = historialStock(p), movs = todo ? hist : hist.slice(0, 15);
   const n = numerosModelo(p);
   modal(`<h3>${esc(p.nombre)}</h3><p class="sub">${esc([p.codigo ? 'Artículo N° ' + p.codigo : '', catDe(p), p.marca, p.color].filter(Boolean).join(' · '))}${p.descripcion ? '<br>' + esc(p.descripcion) : ''}</p>
     <div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:12px">
@@ -126,12 +137,13 @@ function prodVer(id) {
     <div class="curva">${tallesDe(p).map((t) => { const n = stockT(p, t); return `<label>${esc(curvaLbl(t))}<input readonly value="${n}" class="${n > 0 ? 'has' : ''}" style="${n <= 0 ? 'color:var(--out)' : ''}"></label>`; }).join('')}</div>
     <p class="b mt">Total: ${stockTotal(p)} unidades</p>
     <div class="row"><button class="pri" id="pvIn">📥 Entró</button><button id="pvOut">📤 Salió</button><button id="pvCont">🔢 Contar stock</button><button id="pvEd">✏️ Editar artículo</button></div>
-    <h2>Últimos movimientos</h2>${movs.length ? `<div class="list">${movs.map((m) => `<div class="li"><div class="m"><b>${esc(m.motivo)}</b><span>${fmtDate(m.fecha)}${tl(m.talle) ? ' · talle ' + esc(m.talle) : ''}</span></div><div class="s"><span class="pill ${m.cant > 0 ? 'in' : 'out'}">${m.cant > 0 ? '+' : ''}${m.cant}</span></div></div>`).join('')}</div>` : '<div class="empty">Sin movimientos todavía.</div>'}
+    <h2>${todo ? 'Todos los movimientos' : 'Últimos movimientos'}</h2>${movs.length ? `<div class="list">${movs.map(({ m, saldo }) => `<div class="li"><div class="m"><b>${esc(m.motivo)}</b><span>${fmtDate(m.fecha)}${tl(m.talle) ? ' · talle ' + esc(m.talle) : ''}${m.quien ? ' · ' + esc(nombreDe(m.quien)) : ''}</span></div><div class="s"><span class="pill ${m.cant > 0 ? 'in' : 'out'}">${m.cant > 0 ? '+' : ''}${m.cant}</span><span class="small muted saldo">quedan ${saldo}</span></div></div>`).join('')}</div>${!todo && hist.length > movs.length ? `<button class="sm mt" id="pvTodo">Ver los ${hist.length} movimientos</button>` : ''}` : '<div class="empty">Sin movimientos todavía.</div>'}
     <div class="modal-actions"><button data-act="close">Cerrar</button></div>`, (box) => {
     $('#pvIn', box).onclick = () => movStockForm('entrada', { items: [{ productoId: id }] });
     $('#pvOut', box).onclick = () => movStockForm('salida', { items: [{ productoId: id }] });
     $('#pvCont', box).onclick = () => contarForm(id);
     $('#pvEd', box).onclick = () => prodForm(id);
+    const vt = $('#pvTodo', box); if (vt) vt.onclick = () => prodVer(id, true);
   });
 }
 function prodForm(id, pre, onSaved) {
@@ -170,10 +182,15 @@ function prodForm(id, pre, onSaved) {
         rec = Object.assign({ id: uid(), talles: {}, creado: todayStr() }, data); state.productos.push(rec);
         const items = $$('#pfCur input', box).map((i) => ({ productoId: rec.id, talle: i.dataset.t, cant: Math.round(numIn(i.value)) })).filter((i) => i.cant > 0);
         if (items.length) { moverStock(items, 1, 'Stock inicial'); if ($('#pfInv', box) && $('#pfInv', box).checked) inversionEntrada(items, todayStr(), rec.id, 'Stock inicial de ' + rec.nombre); }
-      } else { rec = Object.assign(p, data); }
+      } else {
+        if ((p.precio || 0) !== data.precio) registrar('Cambio de precio', data.nombre, fmtMoney(p.precio || 0), fmtMoney(data.precio));
+        if ((p.costo || 0) !== data.costo) registrar('Cambio de costo', data.nombre, fmtMoney(p.costo || 0), fmtMoney(data.costo));
+        if (p.nombre !== data.nombre) registrar('Cambio de nombre', 'Artículo', p.nombre, data.nombre);
+        rec = Object.assign(p, data);
+      }
       closeModal(); commit(); toast(isNew ? 'Artículo guardado' : 'Cambios guardados'); if (onSaved) onSaved(rec);
     };
-    const d = $('#pfDel', box); if (d) d.onclick = () => confirmBox(`Se borra el artículo ${p.nombre}. Las ventas viejas quedan registradas.`, () => { state.productos = state.productos.filter((x) => x.id !== id); commit(); toast('Artículo borrado'); }, 'Borrar');
+    const d = $('#pfDel', box); if (d) d.onclick = () => confirmBox(`Se borra el artículo ${p.nombre}. Las ventas viejas quedan registradas.`, () => { registrar('Artículo borrado', p.nombre + (stockTotal(p) ? ` (tenía ${stockTotal(p)} unidades)` : '')); state.productos = state.productos.filter((x) => x.id !== id); commit(); toast('Artículo borrado'); }, 'Borrar');
   });
 }
 function contarForm(id) {
@@ -183,7 +200,7 @@ function contarForm(id) {
     <div class="modal-actions"><button data-act="close">Cancelar</button><button class="pri" id="ctOk">Guardar conteo</button></div>`, (box) => {
     $('#ctOk', box).onclick = () => {
       let cambios = 0;
-      $$('.curva input', box).forEach((i) => { const t = i.dataset.t, real = Math.round(numIn(i.value)), dif = real - stockT(p, t); if (dif) { moverStock([{ productoId: id, talle: t, cant: Math.abs(dif) }], Math.sign(dif), 'Conteo (ajuste)'); cambios++; } });
+      $$('.curva input', box).forEach((i) => { const t = i.dataset.t, real = Math.round(numIn(i.value)), dif = real - stockT(p, t); if (dif) { registrar('Conteo de stock', p.nombre + (tl(t) ? ' talle ' + t : ''), stockT(p, t), real); moverStock([{ productoId: id, talle: t, cant: Math.abs(dif) }], Math.sign(dif), 'Conteo (ajuste)'); cambios++; } });
       closeModal(); commit(); toast(cambios ? 'Stock corregido' : 'El stock ya estaba bien');
     };
   });
@@ -227,7 +244,7 @@ VISTAS.ventas = () => {
   <div class="tabs"><button class="${ui.ventasTab === 'todas' ? 'on' : ''}" data-act="ventasTab" data-id="todas">Del mes</button><button class="${ui.ventasTab === 'deben' ? 'on' : ''}" data-act="ventasTab" data-id="deben">Me deben (${meDeben().length})</button></div>
   ${ui.ventasTab === 'todas' ? `<div class="grid kpis" style="margin-bottom:14px"><div class="card kpi"><div class="lbl">Vendido</div><div class="val">${fmtMoney(r.vendido)}</div><div class="hint">${r.ventas.length} ventas</div></div><div class="card kpi"><div class="lbl">Unidades vendidas</div><div class="val">${pares(r.ventas.flatMap((v) => v.items))}</div></div><div class="card kpi"><div class="lbl">Ganancia sobre la mercadería</div><div class="val c-in">${fmtMoney(r.bruta)}</div><div class="hint">${r.vendido ? Math.round(r.bruta / r.vendido * 100) : 0}% de lo vendido</div></div></div>` : ''}
   ${vs.length ? `<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Qué se llevó</th><th>Pago</th><th class="n">Total</th></tr></thead><tbody>
-    ${vs.map((v) => `<tr class="click" data-act="ventaVer" data-id="${v.id}"><td>${fmtDateC(v.fecha)}</td><td>${esc(v.cliente || '—')}</td><td>${esc(resumenItems(v.items, 2))}</td><td><span class="pill ${v.pago === 'Cuenta corriente' ? (v.cobrado ? 'in' : 'warn') : ''}">${v.pago === 'Cuenta corriente' ? (v.cobrado ? 'Cobrada' : 'Me debe') : esc(v.pago)}</span></td><td class="n b">${fmtMoney(v.total)}</td></tr>`).join('')}
+    ${vs.map((v) => `<tr class="click${v.anulada ? ' anulada' : ''}" data-act="ventaVer" data-id="${v.id}"><td>${fmtDateC(v.fecha)}</td><td>${esc(v.cliente || '—')}</td><td>${esc(resumenItems(v.items, 2))}</td><td>${v.anulada ? '<span class="pill out">Anulada</span>' : `<span class="pill ${v.pago === 'Cuenta corriente' ? (v.cobrado ? 'in' : 'warn') : ''}">${v.pago === 'Cuenta corriente' ? (v.cobrado ? 'Cobrada' : 'Me debe') : esc(v.pago)}</span>`}</td><td class="n b">${fmtMoney(v.total)}</td></tr>`).join('')}
     </tbody></table></div>` : `<div class="empty">${ui.ventasTab === 'deben' ? 'Nadie te debe plata.' : 'No hay ventas en este mes.'}</div>`}`;
 };
 function ventaForm(pre = {}, onSaved) {
@@ -257,7 +274,7 @@ function ventaForm(pre = {}, onSaved) {
       if (!pre.desdeMuestra && !forzar) { const f = faltantes(items); if (f.length) { forzar = true; $('#vfErr', box).textContent = 'No alcanza el stock: ' + f.map((x) => `${x.p.nombre} talle ${x.t} (hay ${x.hay})`).join(', ') + '. Si igual lo vendiste, tocá de nuevo y el stock queda en negativo hasta que lo corrijas.'; $('#vfOk', box).textContent = 'Guardar igual'; return; } }
       const g = (n) => $(`[name=${n}]`, box).value.trim();
       const pago = g('pago').startsWith('Cuenta') ? 'Cuenta corriente' : g('pago');
-      const v = { id: uid(), fecha: g('fecha') || todayStr(), hora: new Date().toTimeString().slice(0, 5), cliente: g('cliente'), telefono: g('tel'), pago, cobrado: pago !== 'Cuenta corriente', items: items.map((i) => Object.assign(i, { costo: Number(prod(i.productoId).costo) || 0 })), total: numIn(tot.value) || items.reduce((s, i) => s + i.cant * i.precio, 0), nota: g('nota'), foto: rec.foto, origen: pre.origen || 'app' };
+      const v = { id: uid(), fecha: g('fecha') || todayStr(), hora: new Date().toTimeString().slice(0, 5), quien: quienSoy(), cliente: g('cliente'), telefono: g('tel'), pago, cobrado: pago !== 'Cuenta corriente', items: items.map((i) => Object.assign(i, { costo: Number(prod(i.productoId).costo) || 0 })), total: numIn(tot.value) || items.reduce((s, i) => s + i.cant * i.precio, 0), nota: g('nota'), foto: rec.foto, origen: pre.origen || 'app' };
       if (pre.desdeMuestra) v.muestraId = pre.desdeMuestra; else moverStock(v.items, -1, 'Venta' + (v.cliente ? ' a ' + v.cliente : ''), v.id, v.fecha);
       state.ventas.push(v);
       if (pre.desdeMuestra) { const m = state.muestras.find((x) => x.id === pre.desdeMuestra); if (m) { m.estado = 'vendida'; m.fechaCierre = todayStr(); m.ventaId = v.id; } }
@@ -269,21 +286,31 @@ function ventaForm(pre = {}, onSaved) {
 function ventaVer(id) {
   const v = state.ventas.find((x) => x.id === id); if (!v) return;
   const txt = `Hola${v.cliente ? ' ' + v.cliente : ''}! Te paso el detalle de tu compra en Depósito Mendoza (${fmtDate(v.fecha)}):\n` + v.items.map((i) => `• ${i.cant} × ${prodNombre(i.productoId, i.nombre)}${tl(i.talle) ? ' talle ' + i.talle : ''}${i.precio ? ' — ' + fmtMoney(i.precio) + ' c/u' : ''}`).join('\n') + `\nTotal: ${fmtMoney(v.total)}\n¡Gracias!`;
-  modal(`<h3>Venta · ${fmtDate(v.fecha)}</h3><p class="sub">${esc(v.cliente || 'Sin nombre')}${v.telefono ? ' · ' + esc(v.telefono) : ''} · ${esc(v.pago)}${v.pago === 'Cuenta corriente' ? (v.cobrado ? ' (cobrada el ' + fmtDate(v.fechaCobro) + ')' : ' (me debe)') : ''}${v.origen === 'chat' ? ' · cargada por mensaje' : ''}</p>
+  modal(`<h3>Venta · ${fmtDate(v.fecha)}</h3><p class="sub">${esc(v.cliente || 'Sin nombre')}${v.telefono ? ' · ' + esc(v.telefono) : ''} · ${esc(v.pago)}${v.pago === 'Cuenta corriente' ? (v.cobrado ? ' (cobrada el ' + fmtDate(v.fechaCobro) + ')' : ' (me debe)') : ''}${v.origen === 'chat' ? ' · cargada por mensaje' : ''}${v.quien ? ' · cargó ' + esc(nombreDe(v.quien)) : ''}</p>
+    ${v.anulada ? `<p class="anulada-box">❌ Venta anulada el ${fmtDate(v.fechaAnulada)}${v.anuladaPor ? ' por ' + esc(nombreDe(v.anuladaPor)) : ''}${v.motivoAnulada ? ': ' + esc(v.motivoAnulada) : ''}. No cuenta en los totales y las unidades volvieron al stock.</p>` : ''}
     <div class="tablewrap"><table><thead><tr><th>Artículo</th><th>Talle</th><th class="n">Cant.</th><th class="n">Precio</th></tr></thead><tbody>${v.items.map((i) => `<tr><td>${esc(prodNombre(i.productoId, i.nombre))}</td><td>${esc(tl(i.talle))}</td><td class="n">${i.cant}</td><td class="n">${fmtMoney(i.precio)}</td></tr>`).join('')}</tbody></table></div>
     <p class="b mt" style="font-size:20px">Total ${fmtMoney(v.total)}</p>${v.nota ? `<p>${esc(v.nota)}</p>` : ''}
     <div class="row"><button class="pri" id="vvImp">🖨️ Imprimir remito</button><button id="vvImpP">🖨️ Remito con precios</button></div>
-    <div class="modal-actions"><button class="danger izq" id="vvAn">Anular venta</button>${!v.cobrado ? `<button class="pri" data-act="cobrar" data-id="${v.id}">💰 Me pagó</button>` : ''}<a class="btn wa" href="${waLink(v.telefono, txt)}" target="_blank" rel="noopener">💬 Mandar detalle</a><button data-act="close">Cerrar</button></div>`, (box) => {
+    <div class="modal-actions">${v.anulada ? '' : `<button class="danger izq" id="vvAn">Anular venta</button>${!v.cobrado ? `<button class="pri" data-act="cobrar" data-id="${v.id}">💰 Me pagó</button>` : ''}`}<a class="btn wa" href="${waLink(v.telefono, txt)}" target="_blank" rel="noopener">💬 Mandar detalle</a><button data-act="close">Cerrar</button></div>`, (box) => {
     const imp = (cp) => imprimirHoja(ventaHoja(v, cp), `Remito ${presuNro(ventaNro(v))}${v.cliente ? ' - ' + v.cliente : ''}`);
     $('#vvImp', box).onclick = () => imp(false); $('#vvImpP', box).onclick = () => imp(true);
-    $('#vvAn', box).onclick = () => confirmBox('Se borra la venta y las unidades vuelven al stock.', () => anularVenta(id), 'Anular venta');
+    const an = $('#vvAn', box); if (an) an.onclick = () => anularVentaForm(id);
   });
 }
-function anularVenta(id) {
-  const v = state.ventas.find((x) => x.id === id); if (!v) return;
+function anularVentaForm(id) {
+  modal(`<h3>Anular venta</h3><p>La venta no se borra: queda guardada como anulada, deja de contar en los totales y las unidades vuelven al stock.</p>
+    <div class="form"><label class="f full">Motivo<input id="anMot" placeholder="Ej: se cargó dos veces, el cliente no la retiró"></label></div>
+    <div class="modal-actions"><button data-act="close">Cancelar</button><button class="danger" id="anOk">Anular venta</button></div>`, (box) => {
+    $('#anOk', box).onclick = () => { const mot = $('#anMot', box).value.trim(); closeModal(); anularVenta(id, mot); };
+  });
+}
+function anularVenta(id, motivo) {
+  const v = state.ventas.find((x) => x.id === id); if (!v || v.anulada) return;
   if (v.muestraId) { const m = state.muestras.find((x) => x.id === v.muestraId); if (m) { m.estado = 'afuera'; delete m.ventaId; delete m.fechaCierre; } }
   else moverStock(v.items, 1, 'Venta anulada', v.id);
-  state.ventas = state.ventas.filter((x) => x.id !== id); commit(); toast('Venta anulada');
+  Object.assign(v, { anulada: true, fechaAnulada: todayStr(), anuladaPor: quienSoy(), motivoAnulada: motivo || '' });
+  registrar('Venta anulada', `${v.cliente || 'Sin nombre'} · ${fmtMoney(v.total)} · venta del ${fmtDate(v.fecha)}${motivo ? ' · ' + motivo : ''}`);
+  commit(); toast('Venta anulada');
 }
 
 // ---------- Compras y facturas ----------
@@ -370,7 +397,7 @@ function compraVer(id) {
     on('#cvNoPag', () => { c.pagada = false; c.fechaPago = ''; state.eventos.filter((e) => e.ref === c.id).forEach((e) => { e.hecho = false; }); closeModal(); commit(); toast('Quedó como sin pagar'); });
     on('#cvAdj', () => elegirArchivo((a) => { c.archivoId = archivoGuardar(a, c.id); commit(); toast('Archivo guardado 📎'); compraVer(id); }));
     on('#cvQuitar', () => confirmBox('Se borra el archivo guardado de esta factura.', () => { archivoBorrar(c.archivoId); c.archivoId = ''; commit(); compraVer(id); }, 'Quitar'));
-    on('#cvAn', () => confirmBox(c.items && c.items.length ? 'Se borra la factura y esas unidades se descuentan del stock.' : 'Se borra la factura y su archivo.', () => { if (c.items && c.items.length) moverStock(c.items, -1, 'Factura anulada', c.id); if (c.archivoId) archivoBorrar(c.archivoId); state.compras = state.compras.filter((x) => x.id !== id); state.eventos = state.eventos.filter((e) => e.ref !== id); commit(); toast('Factura borrada'); }, 'Borrar'));
+    on('#cvAn', () => confirmBox(c.items && c.items.length ? 'Se borra la factura y esas unidades se descuentan del stock.' : 'Se borra la factura y su archivo.', () => { registrar('Factura de compra borrada', `${nomFactura(c) || 'Sin número'} · ${fmtMoney(c.total)} · ${fmtDate(c.fecha)}`); if (c.items && c.items.length) moverStock(c.items, -1, 'Factura anulada', c.id); if (c.archivoId) archivoBorrar(c.archivoId); state.compras = state.compras.filter((x) => x.id !== id); state.eventos = state.eventos.filter((e) => e.ref !== id); commit(); toast('Factura borrada'); }, 'Borrar'));
   });
 }
 
@@ -426,7 +453,7 @@ function itemsDelDia(d) {
   const out = state.eventos.filter((e) => e.fecha === d).sort((a, b) => (a.hora || '99').localeCompare(b.hora || '99')).map((e) => ({ k: 'ev', e, color: colorEv(e) }));
   const dm = state.config.diasMuestra || 7;
   muestrasAfuera().forEach((m) => { if (addDays(m.fecha, dm) === d) out.push({ k: 'mu', m, color: '#f67a0c' }); });
-  state.ventas.filter((v) => v.fecha === d).forEach((v) => out.push({ k: 've', v, color: '#9fb3bd' }));
+  ventasOk().filter((v) => v.fecha === d).forEach((v) => out.push({ k: 've', v, color: '#9fb3bd' }));
   return out;
 }
 const chipTxt = (x) => x.k === 'ev' ? x.e.titulo : x.k === 'mu' ? 'Buscar muestra ' + x.m.cliente : 'Venta ' + (x.v.cliente || '');
@@ -520,19 +547,21 @@ function movForm(tipo, id, pre = {}, onSaved) {
     $('#mvOk', box).onclick = () => {
       const g = (n) => $(`[name=${n}]`, box).value.trim(); const monto = numIn(g('monto')); if (monto <= 0) return ($('#mvErr', box).textContent = 'Poné el monto.');
       const data = { tipo: t, concepto: g('concepto') || g('categoria'), categoria: g('categoria'), monto, fecha: g('fecha') || todayStr(), foto: rec.foto };
-      let r; if (id) r = Object.assign(x, data); else { r = Object.assign({ id: uid(), origen: pre.origen || 'app' }, data); state.movimientos.push(r); }
+      let r; if (id) { if ((x.monto || 0) !== monto) registrar('Cambio de monto', `${TIPOS_MOV[t].lbl}: ${data.concepto}`, fmtMoney(x.monto || 0), fmtMoney(monto)); r = Object.assign(x, data); } else { r = Object.assign({ id: uid(), origen: pre.origen || 'app' }, data); state.movimientos.push(r); }
       closeModal(); commit(); toast('Anotado'); if (onSaved) onSaved(r);
     };
-    const d = $('#mvDel', box); if (d) d.onclick = () => { state.movimientos = state.movimientos.filter((m) => m.id !== id); closeModal(); commit(); };
+    const d = $('#mvDel', box); if (d) d.onclick = () => { registrar('Borrado: ' + TIPOS_MOV[t].lbl.toLowerCase(), `${x.concepto || x.categoria} · ${fmtMoney(x.monto)} · ${fmtDate(x.fecha)}`); state.movimientos = state.movimientos.filter((m) => m.id !== id); closeModal(); commit(); };
   });
 }
 
 // ---------- Balance ----------
 VISTAS.balance = () => {
   const m = ui.balMes, r = resumenMes(m), y = m.slice(0, 4);
-  const top = {}; r.ventas.forEach((v) => v.items.forEach((i) => { const k = prodNombre(i.productoId, i.nombre); const o = top[k] || (top[k] = { n: k, pares: 0, total: 0, t: {} }); o.pares += i.cant; o.total += i.cant * i.precio; o.t[i.talle] = (o.t[i.talle] || 0) + i.cant; }));
+  const top = {}; r.ventas.forEach((v) => v.items.forEach((i) => { const k = prodNombre(i.productoId, i.nombre); const o = top[k] || (top[k] = { n: k, pares: 0, total: 0, t: {} }); o.pares += i.cant; o.total += i.cant * i.precio; o.gan = (o.gan || 0) + i.cant * (i.precio - (Number(i.costo) || 0)); if (!Number(i.costo)) o.sinCosto = true; o.t[i.talle] = (o.t[i.talle] || 0) + i.cant; }));
   const tops = Object.values(top).sort((a, b) => b.total - a.total), tmax = tops.length ? tops[0].total : 1;
   const tallesV = {}; r.ventas.forEach((v) => v.items.forEach((i) => { tallesV[i.talle] = (tallesV[i.talle] || 0) + i.cant; })); const tvmax = Math.max(1, ...Object.values(tallesV));
+  const cli = {}; r.ventas.forEach((v) => { const k = (v.cliente || '').trim() || 'Sin nombre'; const o = cli[k] || (cli[k] = { n: k, ventas: 0, total: 0, gan: 0 }); o.ventas++; o.total += Number(v.total) || 0; o.gan += (Number(v.total) || 0) - (v.items || []).reduce((s, i) => s + i.cant * (Number(i.costo) || 0), 0); });
+  const clis = Object.values(cli).sort((a, b) => b.gan - a.gan);
   const anio = Array.from({ length: 12 }, (_, i) => { const mm = `${y}-${String(i + 1).padStart(2, '0')}`; return { mm, r: resumenMes(mm) }; });
   const gastosCat = {}; r.movs.filter((x) => x.tipo === 'gasto').forEach((x) => { gastosCat[x.categoria] = (gastosCat[x.categoria] || 0) + x.monto; });
   return `<div class="spread"><div><h1>Balance</h1><p class="sub">${mesLbl(m)}: cuánto se vendió, cuánto costó y cuánto quedó.</p></div><input type="month" id="balMes" value="${m}" style="width:auto"></div>
@@ -550,9 +579,10 @@ VISTAS.balance = () => {
       ${r.otrosIng ? `<tr><td>+ Otros ingresos</td><td class="n">${fmtMoney(r.otrosIng)}</td></tr>` : ''}
       <tr class="tot"><td>Ganancia neta</td><td class="n ${r.neta < 0 ? 'c-out' : 'c-in'}" style="font-size:20px">${fmtMoney(r.neta)}</td></tr></tbody></table>
       <p class="small muted">Las facturas de mercadería no son gasto: cuentan como inversión y se descuentan recién cuando vendés esas unidades.</p></div>
-    <div class="card"><h3>Artículos más vendidos</h3>${tops.length ? tops.map((t) => `<div style="margin-bottom:10px"><div class="spread"><b>${esc(t.n)}</b><span>${fmtMoney(t.total)}</span></div><div class="bar"><i style="width:${(t.total / tmax * 100).toFixed(1)}%"></i></div><span class="small muted">${t.pares} unidades · talles ${Object.entries(t.t).sort().map(([k, v]) => `${k}(${v})`).join(' ')}</span></div>`).join('') : '<div class="empty">Sin ventas este mes.</div>'}
+    <div class="card"><h3>Artículos más vendidos</h3>${tops.length ? tops.map((t) => `<div style="margin-bottom:10px"><div class="spread"><b>${esc(t.n)}</b><span>${fmtMoney(t.total)}</span></div><div class="bar"><i style="width:${(t.total / tmax * 100).toFixed(1)}%"></i></div><span class="small muted">${t.pares} unidades · <span class="c-in">ganancia ${fmtMoney(t.gan)}</span>${t.sinCosto ? ' (falta el costo de alguna venta)' : ''} · talles ${Object.entries(t.t).sort().map(([k, v]) => `${k}(${v})`).join(' ')}</span></div>`).join('') : '<div class="empty">Sin ventas este mes.</div>'}
       ${Object.keys(tallesV).length ? `<h3 class="mt">Talles más vendidos</h3><div class="curva">${talles().map((t) => `<label>${t}<div class="bar" style="width:100%;height:46px;display:flex;align-items:flex-end;background:#eef1f3"><i style="width:100%;height:${((tallesV[t] || 0) / tvmax * 100).toFixed(0)}%;background:var(--acc)"></i></div><small>${tallesV[t] || 0}</small></label>`).join('')}</div>` : ''}</div>
   </div>
+  ${clis.length ? `<h2>Ganancia por cliente</h2><div class="tablewrap"><table><thead><tr><th>Cliente</th><th class="n">Ventas</th><th class="n">Vendido</th><th class="n">Ganancia</th><th class="n">%</th></tr></thead><tbody>${clis.map((c) => `<tr><td>${esc(c.n)}</td><td class="n">${c.ventas}</td><td class="n">${fmtMoney(c.total)}</td><td class="n b c-in">${fmtMoney(c.gan)}</td><td class="n">${c.total ? Math.round(c.gan / c.total * 100) : 0}%</td></tr>`).join('')}</tbody></table></div><p class="small muted">Ganancia = lo que pagó el cliente menos lo que costó esa mercadería el día de la venta.</p>` : ''}
   <h2>Año ${y}</h2><div class="tablewrap"><table><thead><tr><th>Mes</th><th class="n">Ventas</th><th class="n">Ganancia bruta</th><th class="n">Gastos</th><th class="n">Ganancia neta</th><th class="n">Inversión</th></tr></thead><tbody>
   ${anio.map(({ mm, r: a }) => `<tr class="click" data-act="balIr" data-id="${mm}" style="${mm === m ? 'background:var(--pri2)' : ''}"><td>${MESES[+mm.slice(5) - 1]}</td><td class="n">${fmtMoney(a.vendido)}</td><td class="n">${fmtMoney(a.bruta)}</td><td class="n">${fmtMoney(a.gastos)}</td><td class="n b ${a.neta < 0 ? 'c-out' : ''}">${fmtMoney(a.neta)}</td><td class="n">${fmtMoney(a.inversion)}</td></tr>`).join('')}
   <tr class="b"><td>Total</td>${['vendido', 'bruta', 'gastos', 'neta', 'inversion'].map((k) => `<td class="n b">${fmtMoney(anio.reduce((s, x) => s + x.r[k], 0))}</td>`).join('')}</tr></tbody></table></div>`;
@@ -579,8 +609,15 @@ VISTAS.ajustes = () => {
     : `<p>Ahora los datos quedan solo en este dispositivo. Para que tu viejo, tu vieja y vos vean lo mismo en el celu y en la PC, hay que conectar Firebase (está explicado en el README del proyecto). Si ya tenés la configuración, pegala acá:</p><textarea id="cfFb" placeholder="const firebaseConfig = { apiKey: ..., projectId: ... }"></textarea><div class="modal-actions"><button class="pri" data-act="cfgCloud">Conectar</button></div>`}</div>
   <h2>💾 Respaldo</h2>
   <div class="card"><p class="small muted">${window.desktop ? 'En la PC se guarda solo una copia todos los días en Documentos / Deposito Mendoza - Respaldos.' : 'Bajá una copia de todos los datos de vez en cuando.'}</p><div class="row"><button data-act="backupBajar">⬇️ Descargar copia</button><label class="btn">⬆️ Recuperar copia<input type="file" id="cfRest" accept="application/json" class="hidden"></label>${window.desktop ? '<button data-act="backupAbrir">📂 Abrir carpeta de respaldos</button>' : ''}</div></div>
+  <h2>📜 Registro de cambios</h2>
+  <div class="card">${registroHTML()}</div>
   <h2>Datos de ejemplo</h2><div class="card"><div class="row"><button data-act="cargarEjemplos">Cargar datos de ejemplo</button>${COLS.some((k) => state[k].some((x) => x.ejemplo)) ? '<button data-act="borrarEjemplos">Borrar datos de ejemplo</button>' : ''}</div></div>`;
 };
+function registroHTML() {
+  const todos = state.registro.slice().sort((a, b) => (a.id < b.id ? 1 : -1)), rs = ui.registroTodo ? todos : todos.slice(0, 30);
+  if (!rs.length) return '<p class="small muted">Acá va a quedar anotado quién anuló una venta, cambió un precio, corrigió el stock o borró algo, con el valor de antes y el de después.</p>';
+  return `<div class="tablewrap"><table><thead><tr><th>Cuándo</th><th>Quién</th><th>Qué</th><th>Detalle</th><th>Antes → después</th></tr></thead><tbody>${rs.map((x) => `<tr><td>${fmtDateC(x.fecha)} ${esc(x.hora)}</td><td>${esc(nombreDe(x.quien))}</td><td class="b">${esc(x.que)}</td><td>${esc(x.detalle)}</td><td>${x.antes !== '' || x.despues !== '' ? esc(x.antes) + ' → ' + esc(x.despues) : ''}</td></tr>`).join('')}</tbody></table></div>${todos.length > rs.length ? `<button class="sm mt" data-act="registroTodo">Ver los ${todos.length} cambios</button>` : ''}`;
+}
 VISTAS.mas = () => {
   const items = [['inicio', '🏠', 'Inicio'], ['mensaje', '💬', 'Cargar por mensaje'], ['ventas', '🛒', 'Ventas'], ['stock', '👢', 'Artículos'], ['presupuestos', '📝', 'Presupuestos'], ['muestras', '📦', 'Muestras'], ['compras', '🧾', 'Compras y facturas'], ['calendario', '📅', 'Calendario'], ['plata', '💵', 'Gastos e inversión'], ['balance', '📊', 'Balance'], ['ajustes', '⚙️', 'Ajustes']];
   return `<h1>Menú</h1><div class="mas-grid">${items.map(([v, i, l]) => `<button class="mas-it" data-act="goto" data-id="${v}"><span>${i}</span>${l}</button>`).join('')}</div><p class="small muted mt">versión ${esc(window.APP_VERSION || '')}</p>`;
@@ -588,7 +625,7 @@ VISTAS.mas = () => {
 
 // ---------- Acciones de pantallas ----------
 Object.assign(ACTS, {
-  ventaNueva: () => ventaForm(), ventaVer: (id) => ventaVer(id),
+  ventaNueva: () => ventaForm(), ventaVer: (id) => ventaVer(id), registroTodo: () => { ui.registroTodo = true; render(); },
   entradaNueva: () => movStockForm('entrada'), salidaNueva: () => movStockForm('salida'),
   prodNuevo: () => prodForm(null), stockCat: (id) => { ui.stockCat = id; render(); }, stockVer: (id) => { ui.stockVer = id; render(); }, prodVer: (id) => prodVer(id), prodEditar: (id) => prodForm(id),
   compraNueva: () => compraForm(null), facturaArchivo: () => elegirArchivo((a) => compraForm(null, { archivo: a, clase: 'otra' })), compraVer: (id) => compraVer(id),
@@ -596,7 +633,7 @@ Object.assign(ACTS, {
   muestraVendida: (id) => { const m = state.muestras.find((x) => x.id === id); if (m) ventaForm({ cliente: m.cliente, telefono: m.telefono, items: m.items.map((i) => Object.assign({}, i, { precio: (prod(i.productoId) || {}).precio || '' })), desdeMuestra: m.id }); },
   muestraBorrar: (id) => confirmBox('Se borra la muestra y las unidades vuelven al stock.', () => { const m = state.muestras.find((x) => x.id === id); if (m && m.estado === 'afuera') moverStock(m.items, 1, 'Muestra borrada', m.id); state.muestras = state.muestras.filter((x) => x.id !== id); commit(); }, 'Borrar'),
   muestrasTab: (id) => { ui.muestrasTab = id; render(); }, ventasTab: (id) => { ui.ventasTab = id; render(); }, comprasTab: (id) => { ui.comprasTab = id; render(); },
-  cobrar: (id) => { const v = state.ventas.find((x) => x.id === id); if (!v) return; v.cobrado = true; v.fechaCobro = todayStr(); if (!$('#modal').classList.contains('hidden')) closeModal(); commit(); toast(`Cobrado: ${fmtMoney(v.total)}`); },
+  cobrar: (id) => { const v = state.ventas.find((x) => x.id === id); if (!v || v.anulada) return; v.cobrado = true; v.fechaCobro = todayStr(); registrar('Cobro', `${v.cliente || 'Sin nombre'} pagó ${fmtMoney(v.total)} (venta del ${fmtDate(v.fecha)})`, 'Me debe', 'Cobrada'); if (!$('#modal').classList.contains('hidden')) closeModal(); commit(); toast(`Cobrado: ${fmtMoney(v.total)}`); },
   eventoNuevo: () => eventoForm(null), eventoEditar: (id) => eventoForm(id), prestamoNuevo: () => eventoForm(null, { tipo: 'prestamo', fecha: addDays(todayStr(), 7) }),
   eventoHecho: (id) => { const e = state.eventos.find((x) => x.id === id); if (e) { e.hecho = true; commit(); toast('Listo ✓'); } },
   calSel: (d) => { ui.calSel = d; if (d.slice(0, 7) !== ui.calMes) ui.calMes = d.slice(0, 7); render(); },
