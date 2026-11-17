@@ -241,9 +241,9 @@ function ejecutar(r) { // devuelve {txt, deshacer}
     return { txt: r.tipo === 'prestamoVuelta' ? `✅ Listo, ${e.quien ? e.quien + ' devolvió' : 'te devolvieron'}: ${e.titulo}. Ya no te aviso más.` : `✅ Hecho: ${e.titulo}.`, deshacer: { k: 'eventoHecho', id: e.id } };
   }
   if (r.tipo === 'pagoFactura') {
-    const c = state.compras.find((x) => x.id === r.compraId); pagarCompra(c, r.fecha > todayStr() ? todayStr() : r.fecha);
+    const c = state.compras.find((x) => x.id === r.compraId), pg = pagarCompra(c, r.fecha > todayStr() ? todayStr() : r.fecha, null, /transf/.test(norm(r.texto)) ? 'Transferencia' : /cheq/.test(norm(r.texto)) ? 'Cheque' : /efectivo/.test(norm(r.texto)) ? 'Efectivo' : '');
     const quedan = debo().length;
-    return { txt: `✅ Factura ${nomFactura(c)} pagada: ${fmtMoney(c.total)}.${quedan ? ` Te queda${quedan > 1 ? 'n' : ''} ${quedan} por pagar.` : ' No debés ninguna otra 👌'}`, deshacer: { k: 'pagoFactura', id: c.id } };
+    return { txt: `✅ Factura ${nomFactura(c)} pagada: ${fmtMoney(pg ? pg.monto : c.total)}.${quedan ? ` Te queda${quedan > 1 ? 'n' : ''} ${quedan} por pagar.` : ' No debés ninguna otra 👌'}`, deshacer: { k: 'pagoFactura', id: c.id, pago: pg && pg.id } };
   }
   if (r.tipo === 'factura') {
     const hoy = todayStr(), tn = norm(r.texto), cat = categoriaGasto(r.texto), gasto = cat !== 'Otro gasto';
@@ -313,7 +313,7 @@ function deshacer(d) {
   else if (d.k === 'presupuesto') state.presupuestos = state.presupuestos.filter((x) => x.id !== d.id);
   else if (d.k === 'modelo') state.productos = state.productos.filter((x) => x.id !== d.id);
   else if (d.k === 'eventoHecho') { const e = state.eventos.find((x) => x.id === d.id); if (e) e.hecho = false; }
-  else if (d.k === 'pagoFactura') { const c = state.compras.find((x) => x.id === d.id); if (c) { c.pagada = false; c.fechaPago = ''; state.eventos.filter((e) => e.ref === c.id).forEach((e) => { e.hecho = false; }); } }
+  else if (d.k === 'pagoFactura') { const c = state.compras.find((x) => x.id === d.id); if (c) despagarCompra(c, d.pago); }
   else if (d.k === 'factura') { const c = state.compras.find((x) => x.id === d.id); if (c && c.archivoId) archivoBorrar(c.archivoId); state.compras = state.compras.filter((x) => x.id !== d.id); state.eventos = state.eventos.filter((e) => e.ref !== d.id); }
 }
 
@@ -323,7 +323,7 @@ function responderConsulta(r) {
   if (r.items.length && /precio|costo|cuesta|sale|vale|gano/.test(t)) return [...new Set(r.items.map((i) => i.productoId))].map(prod).map((p) => `${p.nombre}: costo ${p.costo ? fmtMoney(p.costo) : 'sin cargar'} · precio de venta ${p.precio ? fmtMoney(p.precio) : 'sin cargar'}${p.costo && p.precio ? ` · ganás ${fmtMoney(p.precio - p.costo)} por unidad` : ''}`).join('\n');
   if (/invert|inversion/.test(t)) { const rm = resumenMes(hoy.slice(0, 7)); return `En ${MESES[+hoy.slice(5, 7) - 1].toLowerCase()} llevás invertido ${fmtMoney(rm.inversion)}.\nMercadería que hay en el depósito, a costo: ${fmtMoney(valorStock())}.`; }
   if (/prest/.test(t)) { const p = state.eventos.filter((e) => e.tipo === 'prestamo' && !e.hecho); return p.length ? 'Tenés prestado:\n' + p.map((e) => `• ${e.quien || 'Sin nombre'}: ${e.titulo} (lo devuelve el ${fmtDate(e.fecha)})`).join('\n') : 'No tenés nada prestado.'; }
-  if (/\b(debo|facturas?|a pagar|tengo que pagar)\b/.test(t) && !/me deben?/.test(t)) { const d = debo(); return d.length ? 'Facturas sin pagar:\n' + d.map((c) => `• ${c.proveedor || c.detalle || 'Factura'}${c.nro ? ' ' + c.nro : ''}: ${fmtMoney(c.total)}${c.vence ? ' (vence el ' + fmtDate(c.vence) + ')' : ''}`).join('\n') + `\nTotal: ${fmtMoney(d.reduce((s, c) => s + (+c.total || 0), 0))}` : 'No debés ninguna factura 👌'; }
+  if (/\b(debo|facturas?|a pagar|tengo que pagar)\b/.test(t) && !/me deben?/.test(t)) { const d = debo(); return d.length ? 'Facturas sin pagar:\n' + d.map((c) => `• ${c.proveedor || c.detalle || 'Factura'}${c.nro ? ' ' + c.nro : ''}: ${fmtMoney(saldoCompra(c))}${c.vence ? ' (vence el ' + fmtDate(c.vence) + ')' : ''}`).join('\n') + `\nTotal: ${fmtMoney(deboTotal())}` : 'No debés ninguna factura 👌'; }
   if (r.items.length || /stock|hay|tengo|quedan?/.test(t) && !/vend|deb|muestra|gan/.test(t)) {
     const ids = [...new Set(r.items.map((i) => i.productoId))];
     const ps = ids.length ? ids.map(prod) : state.productos.filter((p) => !p.archivado);
@@ -355,7 +355,7 @@ const ELEGIR = { // cuando hay que elegir sobre cuál registro actuar
   muestraVuelta: { key: 'muestraId', lista: () => muestrasAfuera(), get: (id) => state.muestras.find((x) => x.id === id), nom: (x) => x.cliente, lbl: (x) => `${x.cliente || 'Sin nombre'} · ${resumenItems(x.items, 1)}`, q: '¿Cuál muestra volvió?', nada: 'No hay muestras afuera.' },
   prestamoVuelta: { key: 'eventoId', lista: () => state.eventos.filter((e) => e.tipo === 'prestamo' && !e.hecho), get: (id) => state.eventos.find((x) => x.id === id), nom: (x) => (x.quien || '') + ' ' + x.titulo, lbl: (x) => `${x.quien || 'Sin nombre'} · ${x.titulo}`, q: '¿Qué te devolvieron?', nada: 'No tenés nada prestado.' },
   eventoHecho: { key: 'eventoId', lista: () => state.eventos.filter((e) => e.tipo !== 'prestamo' && !e.hecho).sort((a, b) => a.fecha.localeCompare(b.fecha)), get: (id) => state.eventos.find((x) => x.id === id), nom: (x) => x.titulo, lbl: (x) => `${fmtDateC(x.fecha)} · ${x.titulo}`, q: '¿Qué es lo que ya hiciste?', nada: 'No hay nada pendiente en el calendario.' },
-  pagoFactura: { key: 'compraId', lista: () => debo(), get: (id) => state.compras.find((x) => x.id === id), nom: (x) => [x.proveedor, x.detalle, x.nro].join(' '), lbl: (x) => `${x.proveedor || x.detalle || 'Factura'}${x.nro ? ' ' + x.nro : ''} · ${fmtMoney(x.total)}`, q: '¿Cuál factura pagaste?', nada: 'No hay facturas sin pagar.' },
+  pagoFactura: { key: 'compraId', lista: () => debo(), get: (id) => state.compras.find((x) => x.id === id), nom: (x) => [x.proveedor, x.detalle, x.nro].join(' '), lbl: (x) => `${x.proveedor || x.detalle || 'Factura'}${x.nro ? ' ' + x.nro : ''} · ${fmtMoney(saldoCompra(x))}`, q: '¿Cuál factura pagaste?', nada: 'No hay facturas sin pagar.' },
 };
 const SIN_PESO = /^(para|con|los|las|del|que|una|uno|por|the|sus|mis|este|esta|factura|pagar|entrega|entregar|listo|hecho)$/;
 const chatOrden = () => state.chat.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));

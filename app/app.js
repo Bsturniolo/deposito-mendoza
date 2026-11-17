@@ -38,8 +38,9 @@ function toast(msg) {
 }
 
 // ---------- Datos ----------
-const PAGOS = ['Efectivo', 'Transferencia', 'Tarjeta', 'Cuenta corriente'];
-const MEDIOS_COBRO = ['Efectivo', 'Transferencia', 'Cheque', 'eCheq', 'Tarjeta', 'Otro'];
+const MEDIOS = ['Efectivo', 'Transferencia', 'Tarjeta de débito', 'Tarjeta de crédito', 'QR / Mercado Pago', 'Cheque', 'eCheq'];
+const PAGOS = MEDIOS.concat('Mixto', 'Cuenta corriente');
+const MEDIOS_COBRO = MEDIOS.concat('Otro');
 const COMPROBANTES = ['Remito', 'Factura A', 'Factura B', 'Factura C'];
 const COND_IVA = ['Responsable Inscripto', 'Monotributo', 'Exento', 'Consumidor final'];
 const CATS = {
@@ -65,9 +66,9 @@ const MOTIVOS = {
 const EMPTY = () => ({
   version: 1,
   config: { negocio: 'Depósito Mendoza S.A.S.', telefono: '261 5734936', talles: '35-45', diasMuestra: 7, avisoDias: 3, ultimoRespaldo: null, cuit: '', direccion: '', email: '', iva: '', presuNota: '' },
-  productos: [], stockMovs: [], ventas: [], compras: [], muestras: [], movimientos: [], eventos: [], chat: [], archivos: [], presupuestos: [], registro: [], clientes: [], cobros: [],
+  productos: [], stockMovs: [], ventas: [], compras: [], muestras: [], movimientos: [], eventos: [], chat: [], archivos: [], presupuestos: [], registro: [], clientes: [], cobros: [], cajas: [],
 });
-const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat', 'archivos', 'presupuestos', 'registro', 'clientes', 'cobros'];
+const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat', 'archivos', 'presupuestos', 'registro', 'clientes', 'cobros', 'cajas'];
 let state = EMPTY();
 
 // ---------- Talles: cada artículo tiene los suyos ----------
@@ -183,7 +184,7 @@ function vincularCliente(v) {
 }
 function cobroNuevo(d) { // d: {clienteId|cliente, monto, medio, fecha, nota, ventaId}
   const c = clienteDe(d);
-  const r = { id: uid(), fecha: d.fecha || todayStr(), hora: new Date().toTimeString().slice(0, 5), clienteId: c ? c.id : '', cliente: c ? c.nombre : (d.cliente || ''), monto: Number(d.monto) || 0, medio: d.medio || 'Efectivo', nota: d.nota || '', ventaId: d.ventaId || '', quien: quienSoy(), origen: d.origen || 'app' };
+  const r = { id: uid(), fecha: d.fecha || todayStr(), hora: new Date().toTimeString().slice(0, 5), clienteId: c ? c.id : '', cliente: c ? c.nombre : (d.cliente || ''), monto: Number(d.monto) || 0, medio: d.medio || 'Efectivo', nota: d.nota || '', ventaId: d.ventaId || '', retencion: Number(d.retencion) || 0, quien: quienSoy(), origen: d.origen || 'app' };
   state.cobros.push(r);
   registrar('Pago recibido', `${r.cliente || 'Sin nombre'} · ${r.medio}${r.nota ? ' · ' + r.nota : ''}`, '', fmtMoney(r.monto));
   return r;
@@ -324,17 +325,22 @@ function resumenMes(m) {
   const cmv = ventas.reduce((s, v) => s + (v.items || []).reduce((a, i) => a + (Number(i.cant) || 0) * (Number(i.costo) || 0), 0), 0);
   const movs = state.movimientos.filter((x) => enMes(x.fecha, m));
   const sumT = (t) => movs.filter((x) => x.tipo === t).reduce((s, x) => s + (Number(x.monto) || 0), 0);
-  const pagadas = state.compras.filter((c) => c.pagada && enMes(c.fechaPago || c.fecha, m));
-  const facGasto = pagadas.filter((c) => c.clase === 'gasto').reduce((s, c) => s + (Number(c.total) || 0), 0);
+  const facGasto = state.compras.filter((c) => c.clase === 'gasto').reduce((s, c) => s + pagadoEnMes(c, m), 0);
   const gastos = sumT('gasto') + facGasto, inversionMovs = sumT('inversion'), otrosIng = sumT('ingreso');
-  const comprasPagadas = pagadas.filter((c) => c.clase !== 'gasto').reduce((s, c) => s + (Number(c.total) || 0), 0);
-  const cobrado = ventasOk().filter((v) => v.pago !== 'Cuenta corriente' ? enMes(v.fecha, m) : (v.cobrado && enMes(v.fechaCobro, m))).reduce((s, v) => s + (Number(v.total) || 0), 0) + cobrosOk().filter((c) => enMes(c.fecha, m)).reduce((s, c) => s + (Number(c.monto) || 0), 0);
+  const comprasPagadas = state.compras.filter((c) => c.clase !== 'gasto').reduce((s, c) => s + pagadoEnMes(c, m), 0);
+  const cobrado = ventasOk().filter((v) => v.pago !== 'Cuenta corriente' ? enMes(v.fecha, m) : (v.cobrado && enMes(v.fechaCobro, m))).reduce((s, v) => s + (Number(v.total) || 0), 0) + cobrosOk().filter((c) => enMes(c.fecha, m)).reduce((s, c) => s + (Number(c.monto) || 0) - (Number(c.retencion) || 0), 0);
   const bruta = vendido - cmv, neta = bruta - gastos + otrosIng;
   const entro = cobrado + otrosIng, salio = gastos + inversionMovs + comprasPagadas;
   return { ventas, vendido, cmv, bruta, gastos, inversion: inversionMovs + comprasPagadas, comprasPagadas, otrosIng, neta, entro, salio, movs };
 }
 const meDeben = () => { const p = cuentas().pend; return ventasOk().filter((v) => (p.get(v.id) || 0) > 0); };
-const debo = () => state.compras.filter((c) => !c.pagada);
+// Pagos de una factura de compra: puede pagarse en partes. Las viejas solo tenían "pagada".
+const pagosDe = (c) => (Array.isArray(c.pagos) && c.pagos.length ? c.pagos : (c.pagada ? [{ fecha: c.fechaPago || c.fecha, monto: Number(c.total) || 0, medio: '' }] : []));
+const pagadoCompra = (c) => pagosDe(c).reduce((s, p) => s + (Number(p.monto) || 0), 0);
+const saldoCompra = (c) => Math.max(0, (Number(c.total) || 0) - pagadoCompra(c));
+const pagadoEnMes = (c, m) => pagosDe(c).filter((p) => enMes(p.fecha, m)).reduce((s, p) => s + (Number(p.monto) || 0), 0);
+const debo = () => state.compras.filter((c) => saldoCompra(c) > 0);
+const deboTotal = () => debo().reduce((s, c) => s + saldoCompra(c), 0);
 const valorStock = () => state.productos.reduce((s, p) => s + Math.max(0, stockTotal(p)) * (Number(p.costo) || 0), 0);
 const muestrasAfuera = () => state.muestras.filter((m) => m.estado === 'afuera');
 
@@ -342,7 +348,7 @@ const muestrasAfuera = () => state.muestras.filter((m) => m.estado === 'afuera')
 let view = 'inicio';
 const ui = { stockQ: '', ventasMes: todayStr().slice(0, 7), ventasTab: 'todas', comprasTab: 'todas', muestrasTab: 'afuera', plataMes: todayStr().slice(0, 7), balMes: todayStr().slice(0, 7), calMes: todayStr().slice(0, 7), calSel: todayStr(), msg: '', msgRes: null, stockCat: 'todas', stockVer: 'todo', presuTab: 'todos' };
 $('#nav').addEventListener('click', (e) => { const a = e.target.closest('a[data-view]'); if (a) go(a.dataset.view); });
-const NAV_SEC = ['clientes', 'muestras', 'compras', 'calendario', 'plata', 'balance', 'ajustes', 'mas'];
+const NAV_SEC = ['clientes', 'caja', 'muestras', 'compras', 'calendario', 'plata', 'balance', 'ajustes', 'mas'];
 function go(v) {
   view = v;
   $$('#nav a').forEach((a) => a.classList.toggle('active', a.dataset.view === v || (a.dataset.view === 'mas' && NAV_SEC.includes(v) && window.innerWidth <= 760)));

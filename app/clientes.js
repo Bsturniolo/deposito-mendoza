@@ -30,7 +30,7 @@ function movsCuenta(key) {
   const rows = [];
   a.ventas.forEach((v) => { rows.push({ fecha: v.fecha, hora: v.hora || '', txt: `Venta${v.comp ? ' · ' + compLbl(v) : ''} · ${resumenItems(v.items, 2)}`, debe: Number(v.total) || 0, haber: 0, act: 'ventaVer', id: v.id });
     if (v.cobrado) rows.push({ fecha: v.fechaCobro || v.fecha, hora: '99', txt: 'Pago (venta marcada como cobrada)', debe: 0, haber: Number(v.total) || 0, act: 'ventaVer', id: v.id }); });
-  a.cobros.forEach((c) => rows.push({ fecha: c.fecha, hora: c.hora || '', txt: `Pago · ${c.medio}${c.nota ? ' · ' + c.nota : ''}`, debe: 0, haber: Number(c.monto) || 0, act: 'cobroVer', id: c.id }));
+  a.cobros.forEach((c) => rows.push({ fecha: c.fecha, hora: c.hora || '', txt: `Pago · ${c.medio}${Number(c.retencion) ? ' · retención ' + fmtMoney(c.retencion) : ''}${c.nota ? ' · ' + c.nota : ''}`, debe: 0, haber: Number(c.monto) || 0, act: 'cobroVer', id: c.id }));
   rows.sort(ordenFH); let s = 0; rows.forEach((r) => { s += r.debe - r.haber; r.saldo = s; });
   return rows;
 }
@@ -99,13 +99,15 @@ function cobroForm(key, pre = {}) {
     <div class="form"><label class="f">Monto<input name="monto" inputmode="decimal" value="${pre.monto || debe ? fmtNum(pre.monto || debe) : ''}" style="font-weight:800;font-size:18px"></label>
     <label class="f">Fecha<input type="date" name="fecha" value="${pre.fecha || todayStr()}"></label>
     <label class="f">Cómo pagó<select name="medio">${MEDIOS_COBRO.map((m) => `<option ${m === (pre.medio || 'Transferencia') ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+    <label class="f">Retenciones (si te retuvo)<input name="retencion" inputmode="decimal" placeholder="$ 0"><span class="small muted">Lo que la empresa retuvo de IIBB, Ganancias o IVA: cancela deuda pero no entra a la caja.</span></label>
     <label class="f">Nota<input name="nota" value="${esc(pre.nota)}" placeholder="Ej: cheque Banco Nación N° 1234, vence 30/12"></label></div>
     <p class="err" id="cbErr"></p>
     <div class="modal-actions"><button data-act="close">Cancelar</button><button class="pri" id="cbOk">Guardar pago</button></div>`, (box) => {
     $('#cbOk', box).onclick = () => {
       const g = (n) => $(`[name=${n}]`, box).value.trim(); const monto = numIn(g('monto'));
       if (monto <= 0) return ($('#cbErr', box).textContent = 'Poné cuánto pagó.');
-      const r = cobroNuevo({ clienteId: c ? c.id : '', cliente: nombre, monto, medio: g('medio'), fecha: g('fecha'), nota: g('nota'), ventaId: pre.ventaId });
+      const ret = numIn(g('retencion')); if (ret >= monto) return ($('#cbErr', box).textContent = 'La retención no puede ser todo el pago. Poné en Monto el total que cancela (lo que pagó más lo que retuvo).');
+      const r = cobroNuevo({ clienteId: c ? c.id : '', cliente: nombre, monto, medio: g('medio'), fecha: g('fecha'), nota: g('nota'), ventaId: pre.ventaId, retencion: ret });
       const queda = (cuentaDe(cliKey(r)) || {}).debe || 0;
       closeModal(); commit(); toast(`Pago guardado: ${fmtMoney(monto)}${queda > 0 ? ' · todavía debe ' + fmtMoney(queda) : ' · quedó al día'}`);
     };
@@ -114,7 +116,7 @@ function cobroForm(key, pre = {}) {
 function cobroVer(id) {
   const c = state.cobros.find((x) => x.id === id); if (!c) return;
   modal(`<h3>Pago de ${esc(c.cliente || 'Sin nombre')}</h3><p class="sub">${fmtDate(c.fecha)}${c.hora ? ' ' + esc(c.hora) : ''} · ${esc(c.medio)}${c.quien ? ' · cargó ' + esc(nombreDe(c.quien)) : ''}</p>
-    <p class="b" style="font-size:20px">${fmtMoney(c.monto)}</p>${c.nota ? `<p>${esc(c.nota)}</p>` : ''}
+    <p class="b" style="font-size:20px">${fmtMoney(c.monto)}</p>${Number(c.retencion) ? `<p>Incluye ${fmtMoney(c.retencion)} de retenciones (entró a la caja ${fmtMoney(c.monto - c.retencion)}).</p>` : ''}${c.nota ? `<p>${esc(c.nota)}</p>` : ''}
     ${c.anulado ? `<p class="anulada-box">❌ Pago anulado el ${fmtDate(c.fechaAnulado)}${c.motivoAnulado ? ': ' + esc(c.motivoAnulado) : ''}.</p>` : ''}
     <div class="modal-actions">${c.anulado ? '' : '<button class="danger izq" id="cbAn">Anular pago</button>'}<button data-act="close">Cerrar</button></div>`, (box) => {
     const an = $('#cbAn', box); if (an) an.onclick = () => modal(`<h3>Anular pago</h3><p>El pago no se borra: queda anulado y lo que pagó vuelve a la deuda.</p><div class="form"><label class="f full">Motivo<input id="cbMot" placeholder="Ej: el cheque vino rechazado"></label></div>

@@ -270,6 +270,7 @@ function ventaForm(pre = {}, onSaved) {
     <label class="f">Teléfono (opcional)<input name="tel" inputmode="tel" value="${esc(pre.telefono)}"></label>
     <label class="f">Fecha<input type="date" name="fecha" value="${pre.fecha || todayStr()}"></label>
     <label class="f">Forma de pago<select name="pago">${PAGOS.map((p) => `<option ${p === (pre.pago || 'Efectivo') ? 'selected' : ''}>${p === 'Cuenta corriente' ? 'Cuenta corriente (me debe)' : p}</option>`).join('')}</select></label>
+    <div class="f full hidden" id="vfMix"><span>Pago mixto: cuánto por cada medio (tiene que sumar el total)</span><div class="form">${MEDIOS.map((m) => `<label class="f">${m}<input data-mix="${esc(m)}" inputmode="decimal" placeholder="$"></label>`).join('')}</div></div>
     <label class="f">Lista de precios<select name="lista">${listaOptions(lista)}</select></label>
     <label class="f">Comprobante<select name="comp">${COMPROBANTES.map((c) => `<option ${c === (pre.comp || (c0 && c0.comp) || 'Remito') ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
     <label class="f">N° de factura (si ya la hiciste)<input name="compNro" value="${esc(pre.compNro)}" placeholder="Ej: 0001-00001234"></label></div>
@@ -286,6 +287,7 @@ function ventaForm(pre = {}, onSaved) {
     $('#vfAdd', box).onclick = ed.add;
     const reprecio = () => { lines.forEach((l) => { const p = prod(l.productoId); if (p) l.precio = precioLista(p, lista) || l.precio; }); totalManual = null; ed.redraw(); };
     $('[name=lista]', box).onchange = (e) => { lista = e.target.value; reprecio(); };
+    const mix = () => $('#vfMix', box).classList.toggle('hidden', $('[name=pago]', box).value !== 'Mixto'); $('[name=pago]', box).onchange = mix; mix();
     $('[name=cliente]', box).onchange = (e) => { const c = clienteDe({ cliente: e.target.value }); if (!c) return; if (c.telefono && !$('[name=tel]', box).value) $('[name=tel]', box).value = c.telefono; if (c.comp) $('[name=comp]', box).value = c.comp; if ((c.lista || '') !== lista) { lista = c.lista || ''; $('[name=lista]', box).value = lista; reprecio(); } };
     $('#vfOk', box).onclick = () => {
       const items = linesToItems(lines); if (!items.length) return ($('#vfErr', box).textContent = 'Elegí el artículo y poné cuántas unidades de cada talle.');
@@ -293,7 +295,11 @@ function ventaForm(pre = {}, onSaved) {
       const g = (n) => $(`[name=${n}]`, box).value.trim();
       const pago = g('pago').startsWith('Cuenta') ? 'Cuenta corriente' : g('pago');
       if (pago === 'Cuenta corriente' && !g('cliente')) return ($('#vfErr', box).textContent = 'Para vender a cuenta poné a quién, así queda en su cuenta corriente.');
+      const pagosMix = pago === 'Mixto' ? $$('[data-mix]', box).map((i) => ({ medio: i.dataset.mix, monto: numIn(i.value) })).filter((x) => x.monto > 0) : null;
+      const totV = numIn(tot.value) || items.reduce((s, i) => s + i.cant * i.precio, 0);
+      if (pagosMix && Math.abs(pagosMix.reduce((s, x) => s + x.monto, 0) - totV) > 1) return ($('#vfErr', box).textContent = `El pago mixto suma ${fmtMoney(pagosMix.reduce((s, x) => s + x.monto, 0))} y el total es ${fmtMoney(totV)}.`);
       const v = { id: uid(), fecha: g('fecha') || todayStr(), hora: new Date().toTimeString().slice(0, 5), quien: quienSoy(), cliente: g('cliente'), telefono: g('tel'), pago, cobrado: pago !== 'Cuenta corriente', items: items.map((i) => Object.assign(i, { costo: Number(prod(i.productoId).costo) || 0 })), total: numIn(tot.value) || items.reduce((s, i) => s + i.cant * i.precio, 0), nota: g('nota'), foto: rec.foto, origen: pre.origen || 'app', comp: g('comp'), compNro: g('compNro'), lista };
+      if (pagosMix) v.pagos = pagosMix;
       const vc = vincularCliente(v); if (vc) vc.comp = v.comp;
       if (pre.desdeMuestra) v.muestraId = pre.desdeMuestra; else moverStock(v.items, -1, 'Venta' + (v.cliente ? ' a ' + v.cliente : ''), v.id, v.fecha);
       state.ventas.push(v);
@@ -310,6 +316,7 @@ function ventaVer(id) {
     ${v.anulada ? `<p class="anulada-box">❌ Venta anulada el ${fmtDate(v.fechaAnulada)}${v.anuladaPor ? ' por ' + esc(nombreDe(v.anuladaPor)) : ''}${v.motivoAnulada ? ': ' + esc(v.motivoAnulada) : ''}. No cuenta en los totales y las unidades volvieron al stock.</p>` : ''}
     <div class="tablewrap"><table><thead><tr><th>Artículo</th><th>Talle</th><th class="n">Cant.</th><th class="n">Precio</th></tr></thead><tbody>${v.items.map((i) => `<tr><td>${esc(prodNombre(i.productoId, i.nombre))}</td><td>${esc(tl(i.talle))}</td><td class="n">${i.cant}</td><td class="n">${fmtMoney(i.precio)}</td></tr>`).join('')}</tbody></table></div>
     <p class="b mt" style="font-size:20px">Total ${fmtMoney(v.total)}${pendiente(v) > 0 && pendiente(v) < v.total ? ` <span class="pill warn">debe ${fmtMoney(pendiente(v))}</span>` : ''}</p>${v.nota ? `<p>${esc(v.nota)}</p>` : ''}
+    ${v.pagos && v.pagos.length ? `<p class="small">Pagó: ${v.pagos.map((x) => esc(x.medio) + ' ' + fmtMoney(x.monto)).join(' · ')}</p>` : ''}
     <div class="row"><span>🧾 Comprobante: <b>${esc(compLbl(v) || 'sin cargar')}</b></span>${v.anulada ? '' : '<button class="sm" id="vvComp">Cambiar</button>'}${clienteDe(v) ? `<button class="sm" data-act="clienteVer" data-id="${esc(cliKey(v))}">👤 Ver cliente</button>` : ''}</div>
     <div class="row"><button class="pri" id="vvImp">🖨️ Imprimir remito</button><button id="vvImpP">🖨️ Remito con precios</button></div>
     <div class="modal-actions">${v.anulada ? '' : `<button class="danger izq" id="vvAn">Anular venta</button>${pendiente(v) > 0 ? `<button class="pri" data-act="cobrar" data-id="${v.id}">💰 Me pagó</button>` : ''}`}<a class="btn wa" href="${waLink(v.telefono, txt)}" target="_blank" rel="noopener">💬 Mandar detalle</a><button data-act="close">Cerrar</button></div>`, (box) => {
@@ -354,18 +361,47 @@ function anularVenta(id, motivo) {
 VISTAS.compras = () => {
   let cs = state.compras.slice();
   if (ui.comprasTab === 'debo') cs = debo();
-  if (ui.comprasTab === 'pagadas') cs = cs.filter((c) => c.pagada);
+  if (ui.comprasTab === 'pagadas') cs = cs.filter((c) => !saldoCompra(c));
   cs.sort((a, b) => b.fecha.localeCompare(a.fecha));
-  const tot = debo().reduce((s, c) => s + (+c.total || 0), 0);
+  const tot = deboTotal();
   const deQue = (c) => pares(c.items) ? pares(c.items) + ' unidades' : (c.detalle || (c.clase === 'gasto' ? 'Gasto' : 'Compra'));
   return `<div class="spread"><div><h1>Compras y facturas</h1><p class="sub">Guardá acá cada factura con su foto o PDF: queda anotado si la pagaste y no se pierde. Si es de mercadería, además suma las unidades al stock.</p></div>
     <div class="row"><button data-act="facturaArchivo">📎 Guardar foto o PDF de una factura</button><button class="pri" data-act="compraNueva">🧾 Cargar factura</button></div></div>
   <div class="tabs"><button class="${ui.comprasTab === 'todas' ? 'on' : ''}" data-act="comprasTab" data-id="todas">Todas (${state.compras.length})</button><button class="${ui.comprasTab === 'debo' ? 'on' : ''}" data-act="comprasTab" data-id="debo">A pagar (${debo().length} · ${fmtMoney(tot)})</button><button class="${ui.comprasTab === 'pagadas' ? 'on' : ''}" data-act="comprasTab" data-id="pagadas">Pagadas</button></div>
   ${cs.length ? `<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>De qué</th><th>Estado</th><th class="n">Total</th><th>Archivo</th></tr></thead><tbody>
-    ${cs.map((c) => `<tr class="click" data-act="compraVer" data-id="${c.id}"><td>${fmtDateC(c.fecha)}</td><td>${esc(c.proveedor || '—')}</td><td>${esc(c.nro || '')}</td><td>${esc(deQue(c))}</td><td><span class="pill ${c.pagada ? 'in' : c.vence && c.vence < todayStr() ? 'out' : 'warn'}">${c.pagada ? '✓ Pagada' : c.vence ? (c.vence < todayStr() ? 'Vencida ' : 'A pagar · vence ') + fmtDateC(c.vence) : 'A pagar'}</span></td><td class="n b">${fmtMoney(c.total)}</td><td>${c.archivoId ? '📎' : '<span class="small muted">sin archivo</span>'}</td></tr>`).join('')}
+    ${cs.map((c) => `<tr class="click" data-act="compraVer" data-id="${c.id}"><td>${fmtDateC(c.fecha)}</td><td>${esc(c.proveedor || '—')}</td><td>${esc(c.nro || '')}</td><td>${esc(deQue(c))}</td><td><span class="pill ${!saldoCompra(c) ? 'in' : c.vence && c.vence < todayStr() ? 'out' : 'warn'}">${!saldoCompra(c) ? '✓ Pagada' : (pagadoCompra(c) ? 'Falta ' + fmtMoney(saldoCompra(c)) + ' · ' : '') + (c.vence ? (c.vence < todayStr() ? 'Vencida ' : 'vence ') + fmtDateC(c.vence) : pagadoCompra(c) ? '' : 'A pagar')}</span></td><td class="n b">${fmtMoney(c.total)}</td><td>${c.archivoId ? '📎' : '<span class="small muted">sin archivo</span>'}</td></tr>`).join('')}
     </tbody></table></div>` : `<div class="empty">${ui.comprasTab === 'debo' ? 'No debés ninguna factura 👌' : 'Todavía no hay facturas guardadas.'}</div>`}`;
 };
-function pagarCompra(c, fecha) { c.pagada = true; c.fechaPago = fecha || todayStr(); state.eventos.filter((e) => e.ref === c.id).forEach((e) => { e.hecho = true; }); }
+function pagarCompra(c, fecha, monto, medio, nota) { // devuelve el pago; sin monto paga lo que falta
+  const saldo = saldoCompra(c); monto = monto == null ? saldo : Math.min(Number(monto) || 0, saldo); if (monto <= 0) return null;
+  const p = { id: uid(), fecha: fecha || todayStr(), monto, medio: medio || '', nota: nota || '', quien: quienSoy() };
+  c.pagos = (Array.isArray(c.pagos) ? c.pagos : []).concat(p);
+  if (saldoCompra(c) <= 0) { c.pagada = true; c.fechaPago = p.fecha; state.eventos.filter((e) => e.ref === c.id).forEach((e) => { e.hecho = true; }); }
+  registrar('Pago a proveedor', `${nomFactura(c) || 'Factura'}${p.medio ? ' · ' + p.medio : ''}${saldoCompra(c) ? ' · queda ' + fmtMoney(saldoCompra(c)) : ''}`, '', fmtMoney(monto));
+  return p;
+}
+function despagarCompra(c, pagoId) { // saca un pago (o todos)
+  const antes = pagadoCompra(c);
+  c.pagos = pagoId ? (c.pagos || []).filter((p) => p.id !== pagoId) : [];
+  c.pagada = saldoCompra(c) <= 0 && pagadoCompra(c) > 0; if (!c.pagada) { c.fechaPago = ''; state.eventos.filter((e) => e.ref === c.id).forEach((e) => { e.hecho = false; }); }
+  registrar('Pago a proveedor deshecho', nomFactura(c) || 'Factura', fmtMoney(antes), fmtMoney(pagadoCompra(c)));
+}
+function pagoCompraForm(c) {
+  const saldo = saldoCompra(c);
+  modal(`<h3>💸 Pago de factura ${esc(c.nro || '')}</h3><p class="sub">${esc(c.proveedor || c.detalle || '')} · total ${fmtMoney(c.total)}${pagadoCompra(c) ? ' · ya pagaste ' + fmtMoney(pagadoCompra(c)) : ''}. Podés pagar todo o una parte.</p>
+    <div class="form"><label class="f">Monto<input id="pcM" inputmode="decimal" value="${fmtNum(saldo)}" style="font-weight:800;font-size:18px"></label>
+    <label class="f">Fecha<input type="date" id="pcF" value="${todayStr()}"></label>
+    <label class="f">Cómo pagaste<select id="pcMe">${MEDIOS_COBRO.map((m) => `<option ${m === 'Transferencia' ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+    <label class="f">Nota<input id="pcN" placeholder="Ej: cheque N° 5678 a 30 días"></label></div><p class="err" id="pcErr"></p>
+    <div class="modal-actions"><button data-act="close">Cancelar</button><button class="pri" id="pcOk">Guardar pago</button></div>`, (box) => {
+    $('#pcOk', box).onclick = () => {
+      const m = numIn($('#pcM', box).value); if (m <= 0) return ($('#pcErr', box).textContent = 'Poné cuánto pagaste.');
+      if (m > saldo) return ($('#pcErr', box).textContent = 'Es más de lo que falta pagar (' + fmtMoney(saldo) + ').');
+      pagarCompra(c, $('#pcF', box).value || todayStr(), m, $('#pcMe', box).value, $('#pcN', box).value.trim());
+      closeModal(); commit(); toast(saldoCompra(c) ? 'Pago guardado · falta ' + fmtMoney(saldoCompra(c)) : 'Factura pagada ✓'); compraVer(c.id);
+    };
+  });
+}
 function compraForm(id, pre = {}, onSaved) {
   const precioDe = (p) => p.costo || '';
   const lines = itemsToLines(pre.items, precioDe);
@@ -422,16 +458,18 @@ function compraForm(id, pre = {}, onSaved) {
 const tituloFactura = (c) => `Pagar factura ${c.nro || ''} ${c.proveedor ? 'de ' + c.proveedor : c.detalle || ''}`.replace(/\s+/g, ' ').trim();
 function compraVer(id) {
   const c = state.compras.find((x) => x.id === id); if (!c) return;
-  const venc = !c.pagada && c.vence && c.vence < todayStr();
+  const venc = saldoCompra(c) > 0 && c.vence && c.vence < todayStr(), pagos = Array.isArray(c.pagos) ? c.pagos : [];
   modal(`<h3>Factura ${esc(c.nro || '')}</h3><p class="sub">${esc(c.proveedor || 'Sin proveedor')}${c.detalle ? ' · ' + esc(c.detalle) : ''} · ${fmtDate(c.fecha)}</p>
-    <p><span class="pill ${c.pagada ? 'in' : venc ? 'out' : 'warn'}" style="font-size:14px;padding:5px 12px">${c.pagada ? '✓ Pagada el ' + fmtDate(c.fechaPago) : (venc ? 'Sin pagar · venció el ' : 'Sin pagar' + (c.vence ? ' · vence el ' : '')) + (c.vence ? fmtDate(c.vence) : '')}</span></p>
+    <p><span class="pill ${!saldoCompra(c) ? 'in' : venc ? 'out' : 'warn'}" style="font-size:14px;padding:5px 12px">${!saldoCompra(c) ? '✓ Pagada el ' + fmtDate(c.fechaPago || (pagosDe(c).slice(-1)[0] || {}).fecha) : (pagadoCompra(c) ? 'Pagada en parte' : 'Sin pagar') + (venc ? ' · venció el ' : c.vence ? ' · vence el ' : '') + (c.vence ? fmtDate(c.vence) : '')}</span></p>
     ${c.items && c.items.length ? `<div class="tablewrap mt"><table><thead><tr><th>Artículo</th><th>Talle</th><th class="n">Cant.</th><th class="n">Costo</th></tr></thead><tbody>${c.items.map((i) => `<tr><td>${esc(prodNombre(i.productoId, i.nombre))}</td><td>${esc(i.talle)}</td><td class="n">${i.cant}</td><td class="n">${fmtMoney(i.costo)}</td></tr>`).join('')}</tbody></table></div>` : ''}
-    <p class="b mt" style="font-size:20px">Total ${fmtMoney(c.total)}</p>
+    <p class="b mt" style="font-size:20px">Total ${fmtMoney(c.total)}${saldoCompra(c) && pagadoCompra(c) ? ` <span class="pill warn">falta ${fmtMoney(saldoCompra(c))}</span>` : ''}</p>
+    ${pagos.length ? `<div class="list">${pagos.map((p) => `<div class="li"><div class="m"><b>Pago ${fmtMoney(p.monto)}</b><span>${fmtDate(p.fecha)}${p.medio ? ' · ' + esc(p.medio) : ''}${p.nota ? ' · ' + esc(p.nota) : ''}</span></div><div class="s"><button class="sm" data-pq="${p.id}">Quitar</button></div></div>`).join('')}</div>` : ''}
     ${c.archivoId ? archivoHTML(c.archivoId) : '<div class="row"><button id="cvAdj">📎 Adjuntar foto o PDF</button><span class="small muted">Todavía no tiene archivo guardado.</span></div>'}
-    <div class="modal-actions"><button class="danger izq" id="cvAn">Borrar factura</button>${c.archivoId ? '<button id="cvQuitar">Quitar archivo</button>' : ''}${!c.pagada ? '<button class="pri" id="cvPag">💸 La pagué</button>' : '<button id="cvNoPag">No estaba pagada</button>'}<button data-act="close">Cerrar</button></div>`, (box) => {
+    <div class="modal-actions"><button class="danger izq" id="cvAn">Borrar factura</button>${c.archivoId ? '<button id="cvQuitar">Quitar archivo</button>' : ''}${saldoCompra(c) ? '<button class="pri" id="cvPag">💸 Registrar pago</button>' : '<button id="cvNoPag">No estaba pagada</button>'}<button data-act="close">Cerrar</button></div>`, (box) => {
     const on = (sel, fn) => { const b = $(sel, box); if (b) b.onclick = fn; };
-    on('#cvPag', () => { pagarCompra(c); closeModal(); commit(); toast('Factura marcada como pagada ✓'); });
-    on('#cvNoPag', () => { c.pagada = false; c.fechaPago = ''; state.eventos.filter((e) => e.ref === c.id).forEach((e) => { e.hecho = false; }); closeModal(); commit(); toast('Quedó como sin pagar'); });
+    on('#cvPag', () => pagoCompraForm(c));
+    on('#cvNoPag', () => { despagarCompra(c); closeModal(); commit(); toast('Quedó como sin pagar'); });
+    $$('[data-pq]', box).forEach((b) => { b.onclick = () => { despagarCompra(c, b.dataset.pq); commit(); compraVer(id); }; });
     on('#cvAdj', () => elegirArchivo((a) => { c.archivoId = archivoGuardar(a, c.id); commit(); toast('Archivo guardado 📎'); compraVer(id); }));
     on('#cvQuitar', () => confirmBox('Se borra el archivo guardado de esta factura.', () => { archivoBorrar(c.archivoId); c.archivoId = ''; commit(); compraVer(id); }, 'Quitar'));
     on('#cvAn', () => confirmBox(c.items && c.items.length ? 'Se borra la factura y esas unidades se descuentan del stock.' : 'Se borra la factura y su archivo.', () => { registrar('Factura de compra borrada', `${nomFactura(c) || 'Sin número'} · ${fmtMoney(c.total)} · ${fmtDate(c.fecha)}`); if (c.items && c.items.length) moverStock(c.items, -1, 'Factura anulada', c.id); if (c.archivoId) archivoBorrar(c.archivoId); state.compras = state.compras.filter((x) => x.id !== id); state.eventos = state.eventos.filter((e) => e.ref !== id); commit(); toast('Factura borrada'); }, 'Borrar'));
@@ -558,7 +596,7 @@ function eventoForm(id, pre = {}, onSaved) {
 VISTAS.plata = () => {
   const m = ui.plataMes, r = resumenMes(m);
   const ms = r.movs.slice().sort((a, b) => b.fecha.localeCompare(a.fecha));
-  const cp = state.compras.filter((c) => c.pagada && enMes(c.fechaPago || c.fecha, m));
+  const cp = state.compras.flatMap((c) => pagosDe(c).filter((p) => enMes(p.fecha, m)).map((p) => ({ c, p })));
   return `<div class="spread"><div><h1>Gastos e inversión</h1><p class="sub">${mesLbl(m)}</p></div>
     <div class="row"><input type="month" id="plataMes" value="${m}" style="width:auto"><button class="pri" data-act="movNuevo" data-id="gasto">− Gasto</button><button data-act="movNuevo" data-id="inversion">📈 Inversión</button><button data-act="movNuevo" data-id="ingreso">+ Ingreso</button></div></div>
   <div class="grid kpis"><div class="card kpi"><div class="lbl">Gastos</div><div class="val c-out">${fmtMoney(r.gastos)}</div><div class="hint">alquiler, sueldos, flete…</div></div>
@@ -568,7 +606,7 @@ VISTAS.plata = () => {
   <h2>Movimientos del mes</h2>
   ${ms.length || cp.length ? `<div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Concepto</th><th class="n">Monto</th></tr></thead><tbody>
     ${ms.map((x) => `<tr class="click" data-act="movEditar" data-id="${x.id}"><td>${fmtDateC(x.fecha)}</td><td><span class="pill ${TIPOS_MOV[x.tipo].cls}">${TIPOS_MOV[x.tipo].lbl}</span></td><td>${esc(x.concepto || x.categoria)}<div class="small muted">${esc(x.categoria)}</div></td><td class="n b ${x.tipo === 'ingreso' ? 'c-in' : 'c-out'}">${x.tipo === 'ingreso' ? '+' : '−'}${fmtMoney(x.monto)}</td></tr>`).join('')}
-    ${cp.map((c) => `<tr class="click" data-act="compraVer" data-id="${c.id}"><td>${fmtDateC(c.fechaPago || c.fecha)}</td><td><span class="pill pri">Mercadería</span></td><td>Factura ${esc(c.nro || '')} ${esc(c.proveedor || '')}<div class="small muted">${pares(c.items)} unidades</div></td><td class="n b c-out">−${fmtMoney(c.total)}</td></tr>`).join('')}
+    ${cp.map(({ c, p }) => `<tr class="click" data-act="compraVer" data-id="${c.id}"><td>${fmtDateC(p.fecha)}</td><td><span class="pill pri">${c.clase === 'gasto' ? 'Factura de gasto' : 'Mercadería'}</span></td><td>Factura ${esc(c.nro || '')} ${esc(c.proveedor || '')}<div class="small muted">${p.monto < c.total ? 'pago parcial · ' : ''}${pares(c.items) ? pares(c.items) + ' unidades' : ''}${p.medio ? ' · ' + esc(p.medio) : ''}</div></td><td class="n b c-out">−${fmtMoney(p.monto)}</td></tr>`).join('')}
     </tbody></table></div>` : '<div class="empty">No hay movimientos este mes.</div>'}`;
 };
 function movForm(tipo, id, pre = {}, onSaved) {
@@ -578,12 +616,13 @@ function movForm(tipo, id, pre = {}, onSaved) {
     <label class="f full">¿Qué fue?<input name="concepto" value="${esc(x.concepto)}" placeholder="${t === 'gasto' ? 'Ej: Nafta de la camioneta' : t === 'inversion' ? 'Ej: Estanterías nuevas' : 'Ej: Aporte de socio'}"></label>
     <label class="f">Rubro<select name="categoria">${CATS[t].map((c) => `<option ${c === x.categoria ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
     <label class="f">Monto<input name="monto" inputmode="decimal" value="${x.monto || ''}" placeholder="$"></label>
-    <label class="f">Fecha<input type="date" name="fecha" value="${x.fecha}"></label><p class="err full" id="mvErr"></p></div>
+    <label class="f">Fecha<input type="date" name="fecha" value="${x.fecha}"></label>
+    <label class="f">${t === 'ingreso' ? 'Cómo entró' : 'Cómo se pagó'}<select name="medio">${MEDIOS_COBRO.map((m) => `<option ${m === (x.medio || 'Efectivo') ? 'selected' : ''}>${m}</option>`).join('')}</select></label><p class="err full" id="mvErr"></p></div>
     <div class="modal-actions">${id ? '<button class="danger izq" id="mvDel">Borrar</button>' : ''}<button data-act="close">Cancelar</button><button class="pri" id="mvOk">Guardar</button></div>`, (box) => {
     const rec = { foto: x.foto || '' };
     $('#mvOk', box).onclick = () => {
       const g = (n) => $(`[name=${n}]`, box).value.trim(); const monto = numIn(g('monto')); if (monto <= 0) return ($('#mvErr', box).textContent = 'Poné el monto.');
-      const data = { tipo: t, concepto: g('concepto') || g('categoria'), categoria: g('categoria'), monto, fecha: g('fecha') || todayStr(), foto: rec.foto };
+      const data = { tipo: t, concepto: g('concepto') || g('categoria'), categoria: g('categoria'), monto, fecha: g('fecha') || todayStr(), foto: rec.foto, medio: g('medio') };
       let r; if (id) { if ((x.monto || 0) !== monto) registrar('Cambio de monto', `${TIPOS_MOV[t].lbl}: ${data.concepto}`, fmtMoney(x.monto || 0), fmtMoney(monto)); r = Object.assign(x, data); } else { r = Object.assign({ id: uid(), origen: pre.origen || 'app' }, data); state.movimientos.push(r); }
       closeModal(); commit(); toast('Anotado'); if (onSaved) onSaved(r);
     };
@@ -605,7 +644,7 @@ VISTAS.balance = () => {
   <div class="grid kpis"><div class="card kpi"><div class="lbl">Ventas</div><div class="val">${fmtMoney(r.vendido)}</div><div class="hint">${pares(r.ventas.flatMap((v) => v.items))} unidades</div></div>
     <div class="card kpi"><div class="lbl">Ganancia neta</div><div class="val ${r.neta < 0 ? 'c-out' : 'c-in'}">${fmtMoney(r.neta)}</div><div class="hint">lo que quedó después de todo</div></div>
     <div class="card kpi"><div class="lbl">Inversión</div><div class="val c-inv">${fmtMoney(r.inversion)}</div><div class="hint">mercadería y otras compras</div></div>
-    <div class="card kpi"><div class="lbl">Me deben / Debo</div><div class="val" style="font-size:18px"><span class="c-in">${fmtMoney(debeTotal())}</span> / <span class="c-out">${fmtMoney(debo().reduce((s, c) => s + (+c.total || 0), 0))}</span></div><div class="hint">a hoy</div></div></div>
+    <div class="card kpi"><div class="lbl">Me deben / Debo</div><div class="val" style="font-size:18px"><span class="c-in">${fmtMoney(debeTotal())}</span> / <span class="c-out">${fmtMoney(deboTotal())}</span></div><div class="hint">a hoy</div></div></div>
   <div class="grid g2 mt">
     <div class="card"><h3>Estado de resultados</h3><table class="er"><tbody>
       <tr><td>Ventas</td><td class="n">${fmtMoney(r.vendido)}</td></tr>
@@ -658,7 +697,7 @@ function registroHTML() {
   return `<div class="tablewrap"><table><thead><tr><th>Cuándo</th><th>Quién</th><th>Qué</th><th>Detalle</th><th>Antes → después</th></tr></thead><tbody>${rs.map((x) => `<tr><td>${fmtDateC(x.fecha)} ${esc(x.hora)}</td><td>${esc(nombreDe(x.quien))}</td><td class="b">${esc(x.que)}</td><td>${esc(x.detalle)}</td><td>${x.antes !== '' || x.despues !== '' ? esc(x.antes) + ' → ' + esc(x.despues) : ''}</td></tr>`).join('')}</tbody></table></div>${todos.length > rs.length ? `<button class="sm mt" data-act="registroTodo">Ver los ${todos.length} cambios</button>` : ''}`;
 }
 VISTAS.mas = () => {
-  const items = [['inicio', '🏠', 'Inicio'], ['mensaje', '💬', 'Cargar por mensaje'], ['ventas', '🛒', 'Ventas'], ['clientes', '👥', 'Clientes'], ['stock', '👢', 'Artículos'], ['presupuestos', '📝', 'Presupuestos'], ['muestras', '📦', 'Muestras'], ['compras', '🧾', 'Compras y facturas'], ['calendario', '📅', 'Calendario'], ['plata', '💵', 'Gastos e inversión'], ['balance', '📊', 'Balance'], ['ajustes', '⚙️', 'Ajustes']];
+  const items = [['inicio', '🏠', 'Inicio'], ['mensaje', '💬', 'Cargar por mensaje'], ['ventas', '🛒', 'Ventas'], ['clientes', '👥', 'Clientes'], ['stock', '👢', 'Artículos'], ['presupuestos', '📝', 'Presupuestos'], ['muestras', '📦', 'Muestras'], ['compras', '🧾', 'Compras y facturas'], ['calendario', '📅', 'Calendario'], ['plata', '💵', 'Gastos e inversión'], ['caja', '🧮', 'Caja del día'], ['balance', '📊', 'Balance'], ['ajustes', '⚙️', 'Ajustes']];
   return `<h1>Menú</h1><div class="mas-grid">${items.map(([v, i, l]) => `<button class="mas-it" data-act="goto" data-id="${v}"><span>${i}</span>${l}</button>`).join('')}</div><p class="small muted mt">versión ${esc(window.APP_VERSION || '')}</p>`;
 };
 
