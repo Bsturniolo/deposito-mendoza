@@ -238,6 +238,7 @@ function movStockForm(tipo, pre = {}, onSaved) {
 
 // ---------- Ventas ----------
 function pagoPill(v) {
+  if (v.tipo === 'devolucion') return `<span class="pill out">Devolución${v.pago === 'Cuenta corriente' ? ' a cuenta' : ''}</span>`;
   if (v.pago !== 'Cuenta corriente') return `<span class="pill">${esc(v.pago)}</span>`;
   const p = pendiente(v);
   return p <= 0 ? '<span class="pill in">Cobrada</span>' : p < (Number(v.total) || 0) ? `<span class="pill warn">Debe ${fmtMoney(p)}</span>` : '<span class="pill warn">Me debe</span>';
@@ -312,16 +313,20 @@ function ventaForm(pre = {}, onSaved) {
 function ventaVer(id) {
   const v = state.ventas.find((x) => x.id === id); if (!v) return;
   const txt = `Hola${v.cliente ? ' ' + v.cliente : ''}! Te paso el detalle de tu compra en Depósito Mendoza (${fmtDate(v.fecha)}):\n` + v.items.map((i) => `• ${i.cant} × ${prodNombre(i.productoId, i.nombre)}${tl(i.talle) ? ' talle ' + i.talle : ''}${i.precio ? ' — ' + fmtMoney(i.precio) + ' c/u' : ''}`).join('\n') + `\nTotal: ${fmtMoney(v.total)}\n¡Gracias!`;
-  modal(`<h3>Venta · ${fmtDate(v.fecha)}</h3><p class="sub">${esc(v.cliente || 'Sin nombre')}${v.telefono ? ' · ' + esc(v.telefono) : ''} · ${esc(v.pago)}${v.pago === 'Cuenta corriente' ? (v.cobrado ? ' (cobrada el ' + fmtDate(v.fechaCobro) + ')' : ' (me debe)') : ''}${v.origen === 'chat' ? ' · cargada por mensaje' : ''}${v.quien ? ' · cargó ' + esc(nombreDe(v.quien)) : ''}</p>
+  const dev = v.tipo === 'devolucion', devs = ventasOk().filter((d) => d.refVentaId === v.id), ped = v.pedidoId && state.pedidos.find((p) => p.id === v.pedidoId), orig = dev && state.ventas.find((x) => x.id === v.refVentaId);
+  modal(`<h3>${dev ? 'Devolución' : 'Venta'} · ${fmtDate(v.fecha)}</h3><p class="sub">${esc(v.cliente || 'Sin nombre')}${v.telefono ? ' · ' + esc(v.telefono) : ''} · ${esc(v.pago)}${v.pago === 'Cuenta corriente' ? (v.cobrado ? ' (cobrada el ' + fmtDate(v.fechaCobro) + ')' : ' (me debe)') : ''}${v.origen === 'chat' ? ' · cargada por mensaje' : ''}${v.quien ? ' · cargó ' + esc(nombreDe(v.quien)) : ''}</p>
     ${v.anulada ? `<p class="anulada-box">❌ Venta anulada el ${fmtDate(v.fechaAnulada)}${v.anuladaPor ? ' por ' + esc(nombreDe(v.anuladaPor)) : ''}${v.motivoAnulada ? ': ' + esc(v.motivoAnulada) : ''}. No cuenta en los totales y las unidades volvieron al stock.</p>` : ''}
     <div class="tablewrap"><table><thead><tr><th>Artículo</th><th>Talle</th><th class="n">Cant.</th><th class="n">Precio</th></tr></thead><tbody>${v.items.map((i) => `<tr><td>${esc(prodNombre(i.productoId, i.nombre))}</td><td>${esc(tl(i.talle))}</td><td class="n">${i.cant}</td><td class="n">${fmtMoney(i.precio)}</td></tr>`).join('')}</tbody></table></div>
     <p class="b mt" style="font-size:20px">Total ${fmtMoney(v.total)}${pendiente(v) > 0 && pendiente(v) < v.total ? ` <span class="pill warn">debe ${fmtMoney(pendiente(v))}</span>` : ''}</p>${v.nota ? `<p>${esc(v.nota)}</p>` : ''}
     ${v.pagos && v.pagos.length ? `<p class="small">Pagó: ${v.pagos.map((x) => esc(x.medio) + ' ' + fmtMoney(x.monto)).join(' · ')}</p>` : ''}
-    <div class="row"><span>🧾 Comprobante: <b>${esc(compLbl(v) || 'sin cargar')}</b></span>${v.anulada ? '' : '<button class="sm" id="vvComp">Cambiar</button>'}${clienteDe(v) ? `<button class="sm" data-act="clienteVer" data-id="${esc(cliKey(v))}">👤 Ver cliente</button>` : ''}</div>
-    <div class="row"><button class="pri" id="vvImp">🖨️ Imprimir remito</button><button id="vvImpP">🖨️ Remito con precios</button></div>
+    <div class="row"><span>🧾 Comprobante: <b>${esc(compLbl(v) || 'sin cargar')}</b></span>${v.anulada ? '' : `<button class="sm" id="vvComp">${dev ? 'Cargar nota de crédito' : 'Cambiar'}</button>`}${clienteDe(v) ? `<button class="sm" data-act="clienteVer" data-id="${esc(cliKey(v))}">👤 Ver cliente</button>` : ''}</div>
+    ${ped ? `<p><button class="sm" data-act="pedidoVer" data-id="${ped.id}">📦 Entrega del pedido N° ${presuNro(ped.nro)}</button></p>` : ''}${orig ? `<p><button class="sm" data-act="ventaVer" data-id="${orig.id}">🧾 Ver la venta original (${fmtDate(orig.fecha)})</button>${v.vuelveStock === false ? ' <span class="small muted">La mercadería no volvió al stock.</span>' : ''}</p>` : ''}
+    ${devs.length ? `<p class="small">↩️ Devoluciones: ${devs.map((d) => `<button class="sm" data-act="ventaVer" data-id="${d.id}">${fmtDateC(d.fecha)} ${fmtMoney(-d.total)}</button>`).join(' · ')}</p>` : ''}${(v.cambios || []).length ? `<p class="small">🔁 Cambios de talle: ${v.cambios.map((c) => `${fmtDateC(c.fecha)} ${c.cant}× ${esc(c.de)} → ${esc(c.a)}`).join(' · ')}</p>` : ''}
+    ${dev ? '' : `<div class="row"><button class="pri" id="vvImp">🖨️ Imprimir remito</button><button id="vvImpP">🖨️ Remito con precios</button>${v.anulada ? '' : '<button id="vvDev">↩️ Devolución</button><button id="vvCam">🔁 Cambio de talle</button>'}</div>`}
     <div class="modal-actions">${v.anulada ? '' : `<button class="danger izq" id="vvAn">Anular venta</button>${pendiente(v) > 0 ? `<button class="pri" data-act="cobrar" data-id="${v.id}">💰 Me pagó</button>` : ''}`}<a class="btn wa" href="${waLink(v.telefono, txt)}" target="_blank" rel="noopener">💬 Mandar detalle</a><button data-act="close">Cerrar</button></div>`, (box) => {
     const imp = (cp) => imprimirHoja(ventaHoja(v, cp), `Remito ${presuNro(ventaNro(v))}${v.cliente ? ' - ' + v.cliente : ''}`);
-    $('#vvImp', box).onclick = () => imp(false); $('#vvImpP', box).onclick = () => imp(true);
+    const on = (s, fn) => { const b = $(s, box); if (b) b.onclick = fn; };
+    on('#vvImp', () => imp(false)); on('#vvImpP', () => imp(true)); on('#vvDev', () => devolucionForm(id)); on('#vvCam', () => cambioTalleForm(id));
     const an = $('#vvAn', box); if (an) an.onclick = () => anularVentaForm(id);
     const cp = $('#vvComp', box); if (cp) cp.onclick = () => compForm(id);
   });
@@ -351,7 +356,7 @@ function anularVentaForm(id) {
 function anularVenta(id, motivo) {
   const v = state.ventas.find((x) => x.id === id); if (!v || v.anulada) return;
   if (v.muestraId) { const m = state.muestras.find((x) => x.id === v.muestraId); if (m) { m.estado = 'afuera'; delete m.ventaId; delete m.fechaCierre; } }
-  else moverStock(v.items, 1, 'Venta anulada', v.id);
+  else if (!(v.tipo === 'devolucion' && v.vuelveStock === false)) moverStock(v.items, 1, v.tipo === 'devolucion' ? 'Devolución anulada' : 'Venta anulada', v.id);
   Object.assign(v, { anulada: true, fechaAnulada: todayStr(), anuladaPor: quienSoy(), motivoAnulada: motivo || '' });
   registrar('Venta anulada', `${v.cliente || 'Sin nombre'} · ${fmtMoney(v.total)} · venta del ${fmtDate(v.fecha)}${motivo ? ' · ' + motivo : ''}`);
   commit(); toast('Venta anulada');
@@ -697,7 +702,7 @@ function registroHTML() {
   return `<div class="tablewrap"><table><thead><tr><th>Cuándo</th><th>Quién</th><th>Qué</th><th>Detalle</th><th>Antes → después</th></tr></thead><tbody>${rs.map((x) => `<tr><td>${fmtDateC(x.fecha)} ${esc(x.hora)}</td><td>${esc(nombreDe(x.quien))}</td><td class="b">${esc(x.que)}</td><td>${esc(x.detalle)}</td><td>${x.antes !== '' || x.despues !== '' ? esc(x.antes) + ' → ' + esc(x.despues) : ''}</td></tr>`).join('')}</tbody></table></div>${todos.length > rs.length ? `<button class="sm mt" data-act="registroTodo">Ver los ${todos.length} cambios</button>` : ''}`;
 }
 VISTAS.mas = () => {
-  const items = [['inicio', '🏠', 'Inicio'], ['mensaje', '💬', 'Cargar por mensaje'], ['ventas', '🛒', 'Ventas'], ['clientes', '👥', 'Clientes'], ['stock', '👢', 'Artículos'], ['presupuestos', '📝', 'Presupuestos'], ['muestras', '📦', 'Muestras'], ['compras', '🧾', 'Compras y facturas'], ['calendario', '📅', 'Calendario'], ['plata', '💵', 'Gastos e inversión'], ['caja', '🧮', 'Caja del día'], ['balance', '📊', 'Balance'], ['ajustes', '⚙️', 'Ajustes']];
+  const items = [['inicio', '🏠', 'Inicio'], ['mensaje', '💬', 'Cargar por mensaje'], ['ventas', '🛒', 'Ventas'], ['pedidos', '📋', 'Pedidos'], ['clientes', '👥', 'Clientes'], ['stock', '👢', 'Artículos'], ['presupuestos', '📝', 'Presupuestos'], ['muestras', '📦', 'Muestras'], ['compras', '🧾', 'Compras y facturas'], ['calendario', '📅', 'Calendario'], ['plata', '💵', 'Gastos e inversión'], ['caja', '🧮', 'Caja del día'], ['balance', '📊', 'Balance'], ['ajustes', '⚙️', 'Ajustes']];
   return `<h1>Menú</h1><div class="mas-grid">${items.map(([v, i, l]) => `<button class="mas-it" data-act="goto" data-id="${v}"><span>${i}</span>${l}</button>`).join('')}</div><p class="small muted mt">versión ${esc(window.APP_VERSION || '')}</p>`;
 };
 

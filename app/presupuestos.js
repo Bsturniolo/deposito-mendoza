@@ -127,12 +127,13 @@ function presuVer(id) {
   modal(`<div class="spread"><h3>Presupuesto N° ${presuNro(p.nro)}</h3><span class="pill ${ESTADOS_P[e][1]}">${ESTADOS_P[e][0]}</span></div>
     <div class="hoja-vista">${presuHoja(p)}</div>
     <div class="row mt"><button class="pri" id="pvImp">🖨️ Imprimir o guardar PDF</button><a class="btn wa" href="${waLink(p.telefono || '', presuTexto(p))}" target="_blank" rel="noopener">💬 Mandar por WhatsApp</a><button id="pvEd">✏️ Editar</button></div>
-    <div class="row mt">${e !== 'aceptado' ? '<button class="acc" id="pvVenta">✅ Lo aceptó: hacer la venta y el remito</button>' : (p.ventaId && state.ventas.some((x) => x.id === p.ventaId) ? '<button id="pvVerV">🧾 Ver la venta y su remito</button>' : '')}${e === 'pendiente' ? '<button id="pvNo">No se hizo</button>' : '<button id="pvPen">Volver a "esperando"</button>'}</div>
+    <div class="row mt">${e !== 'aceptado' ? '<button class="acc" id="pvVenta">✅ Lo aceptó: hacer la venta y el remito</button><button id="pvPed">📦 Lo aceptó: pasar a pedido (entregas en partes)</button>' : (p.ventaId && state.ventas.some((x) => x.id === p.ventaId) ? '<button id="pvVerV">🧾 Ver la venta y su remito</button>' : '')}${e === 'pendiente' ? '<button id="pvNo">No se hizo</button>' : '<button id="pvPen">Volver a "esperando"</button>'}</div>
     <div class="modal-actions"><button class="danger izq" id="pvDel">Borrar</button><button data-act="close">Cerrar</button></div>`, (box) => {
     const on = (s, fn) => { const b = $(s, box); if (b) b.onclick = fn; };
     on('#pvImp', () => presuImprimir(id));
     on('#pvEd', () => presuForm(id));
     on('#pvVenta', () => presuAVenta(id));
+    on('#pvPed', () => presuAPedido(id));
     on('#pvVerV', () => ventaVer(p.ventaId));
     on('#pvNo', () => { p.estado = 'rechazado'; closeModal(); commit(); });
     on('#pvPen', () => { p.estado = 'pendiente'; closeModal(); commit(); });

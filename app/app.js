@@ -41,7 +41,7 @@ function toast(msg) {
 const MEDIOS = ['Efectivo', 'Transferencia', 'Tarjeta de débito', 'Tarjeta de crédito', 'QR / Mercado Pago', 'Cheque', 'eCheq'];
 const PAGOS = MEDIOS.concat('Mixto', 'Cuenta corriente');
 const MEDIOS_COBRO = MEDIOS.concat('Otro');
-const COMPROBANTES = ['Remito', 'Factura A', 'Factura B', 'Factura C'];
+const COMPROBANTES = ['Remito', 'Factura A', 'Factura B', 'Factura C', 'Nota de crédito A', 'Nota de crédito B', 'Nota de crédito C'];
 const COND_IVA = ['Responsable Inscripto', 'Monotributo', 'Exento', 'Consumidor final'];
 const CATS = {
   gasto: ['Alquiler', 'Sueldos', 'Flete y combustible', 'Luz / Gas / Agua', 'Internet / Teléfono', 'Impuestos', 'Publicidad', 'Mantenimiento', 'Otro gasto'],
@@ -66,9 +66,9 @@ const MOTIVOS = {
 const EMPTY = () => ({
   version: 1,
   config: { negocio: 'Depósito Mendoza S.A.S.', telefono: '261 5734936', talles: '35-45', diasMuestra: 7, avisoDias: 3, ultimoRespaldo: null, cuit: '', direccion: '', email: '', iva: '', presuNota: '' },
-  productos: [], stockMovs: [], ventas: [], compras: [], muestras: [], movimientos: [], eventos: [], chat: [], archivos: [], presupuestos: [], registro: [], clientes: [], cobros: [], cajas: [],
+  productos: [], stockMovs: [], ventas: [], compras: [], muestras: [], movimientos: [], eventos: [], chat: [], archivos: [], presupuestos: [], registro: [], clientes: [], cobros: [], cajas: [], pedidos: [],
 });
-const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat', 'archivos', 'presupuestos', 'registro', 'clientes', 'cobros', 'cajas'];
+const COLS = ['productos', 'stockMovs', 'ventas', 'compras', 'muestras', 'movimientos', 'eventos', 'chat', 'archivos', 'presupuestos', 'registro', 'clientes', 'cobros', 'cajas', 'pedidos'];
 let state = EMPTY();
 
 // ---------- Talles: cada artículo tiene los suyos ----------
@@ -161,8 +161,8 @@ function cuentas() {
   cobrosOk().forEach((c) => get(c).cobros.push(c));
   for (const a of Object.values(out)) {
     a.ventas.sort(ordenFH); a.cobros.sort(ordenFH);
-    a.ventas.forEach((v) => pend.set(v.id, v.cobrado ? 0 : Number(v.total) || 0));
     let pool = 0;
+    a.ventas.forEach((v) => { const t = Number(v.total) || 0; if (t < 0) { pend.set(v.id, 0); pool += -t; } else pend.set(v.id, v.cobrado ? 0 : t); });
     a.cobros.forEach((c) => { let m = Number(c.monto) || 0; if (c.ventaId && pend.has(c.ventaId)) { const u = Math.min(m, pend.get(c.ventaId)); pend.set(c.ventaId, pend.get(c.ventaId) - u); m -= u; } pool += m; });
     a.ventas.forEach((v) => { const u = Math.min(pool, pend.get(v.id)); pend.set(v.id, pend.get(v.id) - u); pool -= u; });
     a.debe = a.ventas.reduce((s, v) => s + pend.get(v.id), 0); a.aFavor = pool;
@@ -348,7 +348,7 @@ const muestrasAfuera = () => state.muestras.filter((m) => m.estado === 'afuera')
 let view = 'inicio';
 const ui = { stockQ: '', ventasMes: todayStr().slice(0, 7), ventasTab: 'todas', comprasTab: 'todas', muestrasTab: 'afuera', plataMes: todayStr().slice(0, 7), balMes: todayStr().slice(0, 7), calMes: todayStr().slice(0, 7), calSel: todayStr(), msg: '', msgRes: null, stockCat: 'todas', stockVer: 'todo', presuTab: 'todos' };
 $('#nav').addEventListener('click', (e) => { const a = e.target.closest('a[data-view]'); if (a) go(a.dataset.view); });
-const NAV_SEC = ['clientes', 'caja', 'muestras', 'compras', 'calendario', 'plata', 'balance', 'ajustes', 'mas'];
+const NAV_SEC = ['pedidos', 'clientes', 'caja', 'muestras', 'compras', 'calendario', 'plata', 'balance', 'ajustes', 'mas'];
 function go(v) {
   view = v;
   $$('#nav a').forEach((a) => a.classList.toggle('active', a.dataset.view === v || (a.dataset.view === 'mas' && NAV_SEC.includes(v) && window.innerWidth <= 760)));

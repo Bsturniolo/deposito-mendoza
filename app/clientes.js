@@ -28,7 +28,7 @@ document.addEventListener('input', (e) => { if (e.target.id === 'cliQ') { ui.cli
 function movsCuenta(key) {
   const a = cuentaDe(key); if (!a) return [];
   const rows = [];
-  a.ventas.forEach((v) => { rows.push({ fecha: v.fecha, hora: v.hora || '', txt: `Venta${v.comp ? ' · ' + compLbl(v) : ''} · ${resumenItems(v.items, 2)}`, debe: Number(v.total) || 0, haber: 0, act: 'ventaVer', id: v.id });
+  a.ventas.forEach((v) => { if (Number(v.total) < 0) { rows.push({ fecha: v.fecha, hora: v.hora || '', txt: `Devolución · ${resumenItems(v.items, 2)}`, debe: 0, haber: -v.total, act: 'ventaVer', id: v.id }); return; } rows.push({ fecha: v.fecha, hora: v.hora || '', txt: `Venta${v.comp ? ' · ' + compLbl(v) : ''} · ${resumenItems(v.items, 2)}`, debe: Number(v.total) || 0, haber: 0, act: 'ventaVer', id: v.id });
     if (v.cobrado) rows.push({ fecha: v.fechaCobro || v.fecha, hora: '99', txt: 'Pago (venta marcada como cobrada)', debe: 0, haber: Number(v.total) || 0, act: 'ventaVer', id: v.id }); });
   a.cobros.forEach((c) => rows.push({ fecha: c.fecha, hora: c.hora || '', txt: `Pago · ${c.medio}${Number(c.retencion) ? ' · retención ' + fmtMoney(c.retencion) : ''}${c.nota ? ' · ' + c.nota : ''}`, debe: 0, haber: Number(c.monto) || 0, act: 'cobroVer', id: c.id }));
   rows.sort(ordenFH); let s = 0; rows.forEach((r) => { s += r.debe - r.haber; r.saldo = s; });
